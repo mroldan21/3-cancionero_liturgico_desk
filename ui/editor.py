@@ -11,22 +11,94 @@ class Editor:
         self.songs_pending_review = []
         self.current_song_index = -1
         self.chord_pattern = re.compile(r'\[([A-G][#b]?[0-9]*(?:m|maj|min|dim|aug)?[0-9]*(?:\/[A-G][#b]?)?)\]')
-        self.setup_ui()
-        self.load_pending_songs()
+        
+        # Inicializar UI de manera segura
+        try:
+            self.setup_ui()
+            # Cargar canciones después de que la UI esté lista
+            self.parent.after(100, self.load_pending_songs)
+        except Exception as e:
+            print(f"Error inicializando editor: {e}")
+            # Mostrar interfaz básica de error
+            self.setup_basic_ui()
+
+    def setup_basic_ui(self):
+        """Configurar UI básica en caso de error"""
+        error_frame = ttk.Frame(self.parent, style="TFrame")
+        error_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        ttk.Label(error_frame, 
+                text="❌ Error cargando el editor", 
+                style="Header.TLabel").pack(pady=20)
+        
+        ttk.Label(error_frame, 
+                text="Reinicia la aplicación o contacta al soporte",
+                style="Normal.TLabel").pack(pady=10)
+        
+        ttk.Button(error_frame,
+                text="🔄 Recargar",
+                command=self.reload_editor,
+                style="Primary.TButton").pack(pady=10)
+
+    def reload_editor(self):
+        """Recargar el editor"""
+        try:
+            # Limpiar y recrear
+            for widget in self.parent.winfo_children():
+                widget.destroy()
+            self.setup_ui()
+            self.load_pending_songs()
+        except Exception as e:
+            print(f"Error recargando editor: {e}")
+
+    def load_pending_songs(self):
+        """Cargar canciones pendientes de revisión desde la BD"""
+        try:
+            # Obtener canciones con estado "pendiente"
+            filters = {'estado': 'pendiente'}
+            canciones = self.app.database.get_canciones(filters)
+            
+            self.songs_pending_review = canciones
+            self.current_song_index = 0 if canciones else -1
+            
+            self.update_songs_list()
+            self.update_song_counter()
+            
+            # Cargar primera canción si existe
+            if self.songs_pending_review:
+                self.load_song(0)
+            else:
+                self.clear_editor()
+                
+        except Exception as e:
+            print(f"Error cargando canciones pendientes: {e}")
+            messagebox.showerror("Error", f"Error cargando canciones: {e}")
         
     def setup_ui(self):
         """Configurar interfaz del editor mejorado"""
-        self.main_frame = ttk.Frame(self.parent, style="TFrame")
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        print("🔄 Iniciando setup_ui del editor...")
         
-        # Título y controles
-        self.create_header()
-        
-        # Panel principal dividido
-        self.create_main_panels()
-        
-        # Panel de herramientas
-        self.create_tools_panel()
+        try:
+            self.main_frame = ttk.Frame(self.parent, style="TFrame")
+            self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Título y controles
+            self.create_header()
+            print("✅ Header creado")
+            
+            # Panel principal dividido
+            self.create_main_panels()
+            print("✅ Paneles principales creados")
+            
+            # Panel de herramientas
+            self.create_tools_panel()
+            print("✅ Panel de herramientas creado")
+            
+            print("✅ Setup_ui completado exitosamente")
+            
+        except Exception as e:
+            print(f"❌ Error en setup_ui: {e}")
+            raise
         
     def create_header(self):
         """Crear header con navegación de canciones pendientes"""
@@ -311,27 +383,27 @@ class Editor:
         self.validation_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         validation_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-    def load_pending_songs(self):
-        """Cargar canciones pendientes de revisión desde la BD"""
-        try:
-            # Obtener canciones con estado "pendiente"
-            filters = {'estado': 'pendiente'}
-            canciones = self.app.database.get_canciones(filters)
+    # def load_pending_songs(self):
+    #     """Cargar canciones pendientes de revisión desde la BD"""
+    #     try:
+    #         # Obtener canciones con estado "pendiente"
+    #         filters = {'estado': 'pendiente'}
+    #         canciones = self.app.database.get_canciones(filters)
             
-            self.songs_pending_review = canciones
-            self.current_song_index = 0 if canciones else -1
+    #         self.songs_pending_review = canciones
+    #         self.current_song_index = 0 if canciones else -1
             
-            self.update_songs_list()
-            self.update_song_counter()
+    #         self.update_songs_list()
+    #         self.update_song_counter()
             
-            # Cargar primera canción si existe
-            if self.songs_pending_review:
-                self.load_song(0)
-            else:
-                self.clear_editor()
+    #         # Cargar primera canción si existe
+    #         if self.songs_pending_review:
+    #             self.load_song(0)
+    #         else:
+    #             self.clear_editor()
                 
-        except Exception as e:
-            messagebox.showerror("Error", f"Error cargando canciones pendientes: {e}")
+    #     except Exception as e:
+    #         messagebox.showerror("Error", f"Error cargando canciones pendientes: {e}")
             
     def update_songs_list(self):
         """Actualizar lista de canciones en el treeview"""

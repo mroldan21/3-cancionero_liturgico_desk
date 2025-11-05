@@ -578,7 +578,6 @@ class ImportModule:
             
             # Pequeña pausa para que la UI se actualice
             self.parent.update()
-            time.sleep(0.1)
         
         # Guardar canciones encontradas
         if all_songs:
@@ -594,10 +593,8 @@ class ImportModule:
                 self.progress_var.set(100)
                 self.update_progress_label(f"✅ {save_results['saved_songs']} canciones importadas")
                 
-                if messagebox.askyesno("Procesamiento Completado", 
-                                    f"Se importaron {save_results['saved_songs']} canciones. ¿Quieres revisarlas en el editor ahora?"):
-                    # Navegar al editor
-                    self.app.show_editor()
+                # Usar after para evitar bloqueos de la UI
+                self.parent.after(100, self._navigate_to_editor)
             else:
                 self.update_progress_label("❌ Error guardando canciones")
                 messagebox.showerror("Error", "No se pudieron guardar las canciones en la base de datos")
@@ -609,7 +606,13 @@ class ImportModule:
         
         self.processing = False
 
-    # Eliminar el método process_files_thread completamente
+    def _navigate_to_editor(self):
+        """Navegar al editor de manera segura"""
+        try:
+            self.app.show_editor()
+        except Exception as e:
+            print(f"Error navegando al editor: {e}")
+            messagebox.showerror("Error", f"No se pudo abrir el editor: {e}")
         
     def update_file_status(self, file_name, status):
         """Actualizar estado de un archivo en el treeview"""
