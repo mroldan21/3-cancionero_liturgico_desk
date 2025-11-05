@@ -83,12 +83,18 @@ class ImportModule:
             
             save_results = self.file_processor.save_songs_to_database(all_songs)
             
-            # Preguntar si ir al editor
+            # Después de guardar las canciones, cambiar el mensaje:
             if save_results['saved_songs'] > 0:
                 if messagebox.askyesno("Procesamiento Completado", 
-                                    f"Se importaron {save_results['saved_songs']} canciones. ¿Quieres revisarlas en el editor ahora?"):
-                    # Navegar al editor
+                                    f"Se importaron {save_results['saved_songs']} canciones (una por archivo). ¿Quieres revisarlas en el editor ahora?"):
                     self.app.show_editor()
+
+            # Preguntar si ir al editor
+            # if save_results['saved_songs'] > 0:
+            #     if messagebox.askyesno("Procesamiento Completado", 
+            #                         f"Se importaron {save_results['saved_songs']} canciones. ¿Quieres revisarlas en el editor ahora?"):
+            #         # Navegar al editor
+            #         self.app.show_editor()
         else:
             messagebox.showinfo("Procesamiento Completado", 
                             "No se encontraron canciones en los archivos procesados")
@@ -125,11 +131,12 @@ class ImportModule:
         
         ttk.Label(source_frame, text="Tipo de Origen:", style="Normal.TLabel").pack(side=tk.LEFT)
         
-        self.source_type = tk.StringVar(value="document")
+        #self.source_type = tk.StringVar(value="document")
+        self.source_type = tk.StringVar(value="pdf")
+
         source_types = [
-            ("📄 Documentos (Word/PDF)", "document"),
+            ("📄 PDF (Una canción por archivo)", "pdf"),
             ("🖼️ Imágenes (OCR)", "image"), 
-            ("🌐 Web Scraping", "web"),
             ("📝 Texto Plano", "text")
         ]
         
@@ -518,7 +525,7 @@ class ImportModule:
             self.url_text.delete(1.0, tk.END)
     
     def start_processing(self):
-        """Iniciar procesamiento de archivos"""
+        """Iniciar procesamiento de archivos (sin threads)"""
         if not self.selected_files:
             messagebox.showwarning("Advertencia", "No hay archivos para procesar")
             return
@@ -531,10 +538,78 @@ class ImportModule:
         self.progress_var.set(0)
         self.update_progress_label()
         
-        # Ejecutar en hilo separado para no bloquear la UI
-        thread = threading.Thread(target=self.process_files_thread)
-        thread.daemon = True
-        thread.start()
+        # Procesar directamente (sin thread)
+        self.process_files_direct()
+
+    def process_files_direct(self):
+        """Procesar archivos directamente en el hilo principal"""
+        total_files = len(self.selected_files)
+        
+        # Configurar opciones de procesamiento
+        options = {
+            'use_pdfplumber': True,
+            'auto_detect_structure': self.auto_detect.get(),
+            'extract_chords': self.auto_chords.get()
+        }
+        
+        # Procesar cada archivo individualmente
+        all_songs = []
+        
+        for i, file_info in enumerate(self.selected_files):
+            file_path = file_info['path']
+            
+            # Actualizar progreso
+            progress = (i / total_files) * 100
+            self.progress_var.set(progress)
+            self.update_progress_label(f"Procesando: {os.path.basename(file_path)} ({i+1}/{total_files})")
+            
+            # Procesar archivo individual
+            file_result = self.file_processor.process_pdf_file(file_path, options)
+            
+            if file_result['success']:
+                songs_found = file_result.get('songs_found', [])
+                all_songs.extend(songs_found)
+                
+                # Actualizar estado en treeview
+                self.update_file_status(file_info['name'], '✅ Completado')
+            else:
+                self.update_file_status(file_info['name'], '❌ Error')
+                print(f"Error procesando {file_info['name']}: {file_result.get('error')}")
+            
+            # Pequeña pausa para que la UI se actualice
+            self.parent.update()
+            time.sleep(0.1)
+        
+        # Guardar canciones encontradas
+        if all_songs:
+            # Guardar en BD con estado "pendiente"
+            for song in all_songs:
+                song['estado'] = 'pendiente'
+                song['fuente'] = 'importacion_pdf'
+            
+            save_results = self.file_processor.save_songs_to_database(all_songs)
+            
+            # Mostrar resultados
+            if save_results['saved_songs'] > 0:
+                self.progress_var.set(100)
+                self.update_progress_label(f"✅ {save_results['saved_songs']} canciones importadas")
+                
+                if messagebox.askyesno("Procesamiento Completado", 
+                                    f"Se importaron {save_results['saved_songs']} canciones. ¿Quieres revisarlas en el editor ahora?"):
+                    # Navegar al editor
+                    self.app.show_editor()
+            else:
+                self.update_progress_label("❌ Error guardando canciones")
+                messagebox.showerror("Error", "No se pudieron guardar las canciones en la base de datos")
+        else:
+            self.progress_var.set(100)
+            self.update_progress_label("ℹ️ No se encontraron canciones")
+            messagebox.showinfo("Procesamiento Completado", 
+                            "No se encontraron canciones en los archivos procesados")
+        
+        self.processing = False
+
+    # Eliminar el método process_files_thread completamente
         
     def update_file_status(self, file_name, status):
         """Actualizar estado de un archivo en el treeview"""
