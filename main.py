@@ -9,18 +9,18 @@ matplotlib.use('TkAgg')  # Usar backend compatible con Tkinter
 # En main.py
 from core.database import DatabaseManager
 
-# Configurar conexión
+# Configurar conexión global
 db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
 
-# Probar conexión
+# Probar conexión al iniciar
 if db.test_connection():
     print("✅ Conectado a la API")
-    
-    # Obtener canciones
     canciones = db.get_canciones()
     print(f"📝 {len(canciones)} canciones cargadas")
+    DB_CONNECTED = True
 else:
-    print("❌ Error de conexión")
+    print("❌ Error de conexión - Modo offline")
+    DB_CONNECTED = False
 
 
 # Agregar paths para imports
@@ -55,7 +55,8 @@ class LiturgyConverterApp:
         
         # Estado de la aplicación
         self.current_module = None
-        self.db_connected = False
+        self.db_connected = DB_CONNECTED
+        self.db = db  # Hacer disponible la instancia de DB
         
         self.setup_ui()
         
@@ -176,8 +177,15 @@ class LiturgyConverterApp:
     def update_status(self):
         """Actualizar barra de estado"""
         status_text = "🟢 BD Conectada" if self.db_connected else "🔴 BD No conectada"
-        # Actualizar texto (el estilo maneja colores de etiqueta)
-        # self.db_status.config(text=status_text)
+        self.db_status.config(text=status_text)
+        
+        # Actualizar contador de canciones
+        if self.db_connected:
+            try:
+                canciones = self.db.get_canciones()
+                self.song_count.config(text=f"Canciones: {len(canciones)}")
+            except:
+                self.song_count.config(text="Canciones: Error")
         
     def set_db_status(self, connected):
         """Establecer estado de conexión BD"""

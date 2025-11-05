@@ -5,12 +5,14 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import json
 import random
+from core.database import DatabaseManager
 
 class Dashboard:
     def __init__(self, parent, app):
         self.parent = parent
         self.app = app
-        self.stats_data = self.load_sample_stats()
+        self.db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+        self.stats_data = self.load_real_stats()
         self.setup_ui()
         
     def setup_ui(self):
@@ -468,16 +470,47 @@ class Dashboard:
             ttk.Label(item_frame, text=component, font=('Arial', 9)).pack(anchor="w")
             ttk.Label(item_frame, text=status, font=('Arial', 9), foreground=color).pack(anchor="w")
             
-    def load_sample_stats(self):
-        """Cargar estadísticas de ejemplo"""
+    def load_real_stats(self):
+        """Cargar estadísticas reales desde la API"""
+        try:
+            # Obtener estadísticas desde la API
+            stats_api = self.db.get_estadisticas()
+            
+            if stats_api:
+                return {
+                    'total_songs': stats_api.get('total_canciones', 0),
+                    'pending_review': stats_api.get('pendientes_revision', 0),
+                    'this_week': stats_api.get('canciones_semana', 0),
+                    'categories': stats_api.get('total_categorias', 0),
+                    'total_imports': stats_api.get('total_importaciones', 0),
+                    'total_exports': stats_api.get('total_exportaciones', 0)
+                }
+            else:
+                # Si falla la API, usar datos por defecto
+                return self.load_fallback_stats()
+                
+        except Exception as e:
+            print(f"Error cargando estadísticas: {e}")
+            return self.load_fallback_stats()
+
+    def load_fallback_stats(self):
+        """Estadísticas por defecto si falla la API"""
         return {
-            'total_songs': '1,247',
-            'pending_review': 15,
-            'this_week': 8,
-            'categories': 12,
-            'total_imports': 347,
-            'total_exports': 89
+            'total_songs': 0,
+            'pending_review': 0,
+            'this_week': 0,
+            'categories': 0,
+            'total_imports': 0,
+            'total_exports': 0
         }
+        
+    def refresh_stats(self):
+        """Actualizar estadísticas desde la API"""
+        self.stats_data = self.load_real_stats()
+        # Recargar la UI completa
+        for widget in self.parent.winfo_children():
+            widget.destroy()
+        self.setup_ui()
         
     def load_enhanced_activity(self):
         """Cargar actividad de ejemplo mejorada"""
