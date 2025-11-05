@@ -1,3 +1,4 @@
+# main.py - Aplicación principal para Liturgy Converter Pro
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
