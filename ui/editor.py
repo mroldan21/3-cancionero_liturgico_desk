@@ -11,7 +11,8 @@ class Editor:
         self.songs_pending_review = []
         self.current_song_index = -1
         self.chord_pattern = re.compile(r'\[([A-G][#b]?[0-9]*(?:m|maj|min|dim|aug)?[0-9]*(?:\/[A-G][#b]?)?)\]')
-        
+        self.loading_song = False
+
         # Inicializar UI de manera segura
         try:
             self.setup_ui()
@@ -54,9 +55,13 @@ class Editor:
     def load_pending_songs(self):
         """Cargar canciones pendientes de revisión desde la BD"""
         try:
+            print("🔄 Cargando canciones pendientes desde BD...")
+            
             # Obtener canciones con estado "pendiente"
             filters = {'estado': 'pendiente'}
             canciones = self.app.database.get_canciones(filters)
+            
+            print(f"📝 Se encontraron {len(canciones)} canciones pendientes")
             
             self.songs_pending_review = canciones
             self.current_song_index = 0 if canciones else -1
@@ -66,12 +71,14 @@ class Editor:
             
             # Cargar primera canción si existe
             if self.songs_pending_review:
+                print(f"🎵 Cargando canción índice {self.current_song_index}")
                 self.load_song(0)
             else:
+                print("ℹ️ No hay canciones pendientes para revisar")
                 self.clear_editor()
                 
         except Exception as e:
-            print(f"Error cargando canciones pendientes: {e}")
+            print(f"❌ Error cargando canciones pendientes: {e}")
             messagebox.showerror("Error", f"Error cargando canciones: {e}")
         
     def setup_ui(self):
@@ -205,7 +212,7 @@ class Editor:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Bind selección
-        self.songs_tree.bind('<<TreeviewSelect>>', self.on_song_select)
+        self.parent.after(100, lambda: self.songs_tree.bind('<<TreeviewSelect>>', self.on_song_select))
         
     def create_editor_panel(self, parent):
         """Crear panel del editor"""
@@ -382,29 +389,7 @@ class Editor:
         
         self.validation_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         validation_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-    # def load_pending_songs(self):
-    #     """Cargar canciones pendientes de revisión desde la BD"""
-    #     try:
-    #         # Obtener canciones con estado "pendiente"
-    #         filters = {'estado': 'pendiente'}
-    #         canciones = self.app.database.get_canciones(filters)
-            
-    #         self.songs_pending_review = canciones
-    #         self.current_song_index = 0 if canciones else -1
-            
-    #         self.update_songs_list()
-    #         self.update_song_counter()
-            
-    #         # Cargar primera canción si existe
-    #         if self.songs_pending_review:
-    #             self.load_song(0)
-    #         else:
-    #             self.clear_editor()
-                
-    #     except Exception as e:
-    #         messagebox.showerror("Error", f"Error cargando canciones pendientes: {e}")
-            
+                    
     def update_songs_list(self):
         """Actualizar lista de canciones en el treeview"""
         # Limpiar lista actual
@@ -428,33 +413,64 @@ class Editor:
         
     def load_song(self, index):
         """Cargar canción en el editor"""
-        if 0 <= index < len(self.songs_pending_review):
-            self.current_song_index = index
-            self.current_song = self.songs_pending_review[index]
+        if self.loading_song:  # ← EVITAR RECURSIÓN
+            return
             
-            # Actualizar interfaz
-            self.title_entry.delete(0, tk.END)
-            self.title_entry.insert(0, self.current_song.get('titulo', ''))
-            
-            self.artist_entry.delete(0, tk.END)
-            self.artist_entry.insert(0, self.current_song.get('artista', ''))
-            
-            self.key_combo.set(self.current_song.get('tono_original', 'C'))
-            self.category_combo.set(self.current_song.get('categoria', 'General'))
-            
-            self.text_editor.delete(1.0, tk.END)
-            self.text_editor.insert(1.0, self.current_song.get('letra', ''))
-            
-            self.highlight_syntax()
-            self.update_chords_list()
-            self.update_song_counter()
-            
-            # Seleccionar en la lista
-            items = self.songs_tree.get_children()
-            if items and index < len(items):
-                self.songs_tree.selection_set(items[index])
-                self.songs_tree.focus(items[index])
+        print(f"🔄 Cargando canción en índice {index}")
+        self.loading_song = True  # ← BLOQUEAR RECURSIÓN
+        
+        try:
+            if 0 <= index < len(self.songs_pending_review):
+                self.current_song_index = index
+                self.current_song = self.songs_pending_review[index]
                 
+                print(f"🎵 Canción cargada: {self.current_song.get('titulo', 'Sin título')}")
+                
+                # Actualizar interfaz
+                self.title_entry.delete(0, tk.END)
+                self.title_entry.insert(0, self.current_song.get('titulo', ''))
+                
+                self.artist_entry.delete(0, tk.END)
+                self.artist_entry.insert(0, self.current_song.get('artista', ''))
+                
+                self.key_combo.set(self.current_song.get('tono_original', 'C'))
+                self.category_combo.set(self.current_song.get('categoria', 'General'))
+                
+                self.text_editor.delete(1.0, tk.END)
+                self.text_editor.insert(1.0, self.current_song.get('letra', ''))
+                
+                self.highlight_syntax()
+                self.update_chords_list()
+                self.update_song_counter()
+                
+                # Seleccionar en la lista (sin disparar eventos)
+                items = self.songs_tree.get_children()
+                if items and index < len(items):
+                    # Desvincular temporalmente el evento para evitar bucle
+                    self.songs_tree.unbind('<<TreeviewSelect>>')
+                    self.songs_tree.selection_set(items[index])
+                    self.songs_tree.focus(items[index])
+                    # Volver a vincular el evento
+                    self.songs_tree.bind('<<TreeviewSelect>>', self.on_song_select)
+                    
+                print("✅ Canción cargada exitosamente en el editor")
+            else:
+                print(f"❌ Índice {index} fuera de rango. Total canciones: {len(self.songs_pending_review)}")
+                
+        finally:
+            self.loading_song = False  # ← DESBLOQUEAR
+
+    def on_song_select(self, event):
+        """Cuando se selecciona una canción en la lista"""
+        if self.loading_song:  # ← EVITAR RECURSIÓN DURANTE CARGA
+            return
+            
+        selection = self.songs_tree.selection()
+        if selection:
+            index = self.songs_tree.index(selection[0])
+            print(f"🎯 Usuario seleccionó canción en índice {index}")
+            self.load_song(index)   
+
     def on_song_select(self, event):
         """Cuando se selecciona una canción en la lista"""
         selection = self.songs_tree.selection()
