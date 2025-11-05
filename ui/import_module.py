@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import threading
 import time
+from core.file_processor import FileProcessor
 
 class ImportModule:
     def __init__(self, parent, app):
@@ -10,6 +11,11 @@ class ImportModule:
         self.app = app
         self.selected_files = []
         self.processing = False
+
+        # Inicializar procesador de archivos
+        self.file_processor = FileProcessor(app.database)
+        self.file_processor.set_progress_callback(self.on_processing_progress)
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -34,7 +40,48 @@ class ImportModule:
         
         # Botones de acción
         self.create_action_buttons()
+
+    def on_processing_progress(self, message, percent=None):
+        """Callback para actualizar progreso del procesamiento"""
+        if percent is not None:
+            self.progress_var.set(percent)
+        self.progress_label.config(text=message)
+        self.parent.update()
+
+    # Modificar el método process_files_thread:
+    def process_files_thread(self):
+        """Procesar archivos en hilo separado"""
+        total_files = len(self.selected_files)
         
+        # Configurar opciones de procesamiento
+        options = {
+            'use_pdfplumber': True,
+            'auto_detect_structure': self.auto_detect.get(),
+            'extract_chords': self.auto_chords.get()
+        }
+        
+        # Procesar archivos
+        results = self.file_processor.process_files_batch(
+            [f['path'] for f in self.selected_files], 
+            options
+        )
+        
+        # Guardar canciones encontradas
+        all_songs = []
+        for file_result in results['file_results']:
+            if file_result['success']:
+                all_songs.extend(file_result.get('songs_found', []))
+        
+        if all_songs:
+            save_results = self.file_processor.save_songs_to_database(all_songs)
+            messagebox.showinfo("Procesamiento Completado", 
+                            f"Se encontraron {len(all_songs)} canciones y se guardaron {save_results['saved_songs']}")
+        else:
+            messagebox.showinfo("Procesamiento Completado", 
+                            "No se encontraron canciones en los archivos procesados")
+        
+        self.processing = False
+
     def create_config_panel(self):
         """Crear panel de configuración expandido"""
         config_frame = ttk.LabelFrame(self.main_frame,

@@ -10,17 +10,17 @@ matplotlib.use('TkAgg')  # Usar backend compatible con Tkinter
 from core.database import DatabaseManager
 
 # Configurar conexión global
-db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+#db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
 
 # Probar conexión al iniciar
-if db.test_connection():
+""" if db.test_connection():
     print("✅ Conectado a la API")
     canciones = db.get_canciones()
     print(f"📝 {len(canciones)} canciones cargadas")
     DB_CONNECTED = True
 else:
     print("❌ Error de conexión - Modo offline")
-    DB_CONNECTED = False
+    DB_CONNECTED = False """
 
 
 # Agregar paths para imports
@@ -52,13 +52,53 @@ class LiturgyConverterApp:
         self.success_color = self.colors['success']
         self.warning_color = self.colors['warning']
         self.info_color = self.colors.get('info', "#2980B9")
+
+        # Inicializar base de datos
+        self.database = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
         
         # Estado de la aplicación
         self.current_module = None
-        self.db_connected = DB_CONNECTED
-        self.db = db  # Hacer disponible la instancia de DB
-        
+        self.db_connected = False #DB_CONNECTED
+
         self.setup_ui()
+        self.check_database_connection()
+        # self.db = db  # Hacer disponible la instancia de DB
+        
+        # self.setup_ui()
+    
+    def check_database_connection(self):
+        """Verificar conexión con la base de datos"""
+        try:
+            # Probar conexión (sin bloquear la UI)
+            self.root.after(100, self._test_connection)
+        except Exception as e:
+            print(f"Error verificando conexión: {e}")
+            self.set_db_status(False)
+
+    def _test_connection(self):
+        """Probar conexión en segundo plano"""
+        try:
+            connected = self.database.test_connection()
+            self.set_db_status(connected)
+            if connected:
+                print("✅ Conectado a la base de datos")
+                # Cargar estadísticas iniciales
+                self.load_initial_data()
+            else:
+                print("❌ No se pudo conectar a la base de datos")
+        except Exception as e:
+            print(f"Error en conexión: {e}")
+            self.set_db_status(False)
+
+    def load_initial_data(self):
+        """Cargar datos iniciales de la aplicación"""
+        try:
+            # Cargar canciones para el contador
+            canciones = self.database.get_canciones()
+            self.song_count.config(text=f"Canciones: {len(canciones)}")
+            print(f"📝 {len(canciones)} canciones cargadas")
+        except Exception as e:
+            print(f"Error cargando datos iniciales: {e}")
         
     def setup_ui(self):
         """Configurar interfaz principal"""

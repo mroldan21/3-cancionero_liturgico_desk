@@ -11,9 +11,14 @@ class Dashboard:
     def __init__(self, parent, app):
         self.parent = parent
         self.app = app
-        self.db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+        # Usar la misma instancia de BD que la app principal
+        self.db = app.database
         self.stats_data = self.load_real_stats()
         self.setup_ui()
+
+        # self.db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+        # self.stats_data = self.load_real_stats()
+        # self.setup_ui()
         
     def setup_ui(self):
         """Configurar interfaz del dashboard mejorado"""
@@ -470,29 +475,74 @@ class Dashboard:
             ttk.Label(item_frame, text=component, font=('Arial', 9)).pack(anchor="w")
             ttk.Label(item_frame, text=status, font=('Arial', 9), foreground=color).pack(anchor="w")
             
-    def load_real_stats(self):
-        """Cargar estadísticas reales desde la API"""
-        try:
-            # Obtener estadísticas desde la API
-            stats_api = self.db.get_estadisticas()
+    # def load_real_stats(self):
+    #     """Cargar estadísticas reales desde la API"""
+    #     try:
+    #         # Obtener estadísticas desde la API
+    #         stats_api = self.db.get_estadisticas()
             
-            if stats_api:
-                return {
-                    'total_songs': stats_api.get('total_canciones', 0),
-                    'pending_review': stats_api.get('pendientes_revision', 0),
-                    'this_week': stats_api.get('canciones_semana', 0),
-                    'categories': stats_api.get('total_categorias', 0),
-                    'total_imports': stats_api.get('total_importaciones', 0),
-                    'total_exports': stats_api.get('total_exportaciones', 0)
-                }
-            else:
-                # Si falla la API, usar datos por defecto
-                return self.load_fallback_stats()
+    #         if stats_api:
+    #             return {
+    #                 'total_songs': stats_api.get('total_canciones', 0),
+    #                 'pending_review': stats_api.get('pendientes_revision', 0),
+    #                 'this_week': stats_api.get('canciones_semana', 0),
+    #                 'categories': stats_api.get('total_categorias', 0),
+    #                 'total_imports': stats_api.get('total_importaciones', 0),
+    #                 'total_exports': stats_api.get('total_exportaciones', 0)
+    #             }
+    #         else:
+    #             # Si falla la API, usar datos por defecto
+    #             return self.load_fallback_stats()
                 
-        except Exception as e:
-            print(f"Error cargando estadísticas: {e}")
-            return self.load_fallback_stats()
+    #     except Exception as e:
+    #         print(f"Error cargando estadísticas: {e}")
+    #         return self.load_fallback_stats()
 
+    def load_real_stats(self):
+        """Cargar estadísticas reales desde la BD"""
+        try:
+            # Obtener canciones reales
+            canciones = self.db.get_canciones()
+            
+            # Obtener categorías
+            categorias = self.db.get_categorias()
+            
+            # Calcular estadísticas básicas
+            return {
+                'total_songs': len(canciones),
+                'pending_review': len([c for c in canciones if c.get('estado') == 'pendiente']),
+                'this_week': self.get_songs_this_week(canciones),
+                'categories': len(categorias),
+                'total_imports': 0,  # Podrías agregar este campo en tu BD
+                'total_exports': 0   # Podrías agregar este campo en tu BD
+            }
+        except Exception as e:
+            print(f"Error cargando estadísticas reales: {e}")
+            # Fallback a datos de ejemplo
+            return self.load_sample_stats()
+    
+    def get_songs_this_week(self, canciones):
+        """Obtener canciones creadas esta semana"""
+        try:
+            from datetime import datetime, timedelta
+            week_ago = datetime.now() - timedelta(days=7)
+            count = 0
+            for cancion in canciones:
+                if cancion.get('fecha_creacion'):
+                    # Convertir string de fecha a datetime si es necesario
+                    fecha_str = cancion['fecha_creacion']
+                    # Manejar diferentes formatos de fecha
+                    if 'T' in fecha_str:
+                        fecha_creacion = datetime.fromisoformat(fecha_str.replace('Z', '+00:00'))
+                    else:
+                        fecha_creacion = datetime.strptime(fecha_str, '%Y-%m-%d %H:%M:%S')
+                    
+                    if fecha_creacion >= week_ago:
+                        count += 1
+            return count
+        except:
+            return 0
+        
     def load_fallback_stats(self):
         """Estadísticas por defecto si falla la API"""
         return {
@@ -511,7 +561,7 @@ class Dashboard:
         for widget in self.parent.winfo_children():
             widget.destroy()
         self.setup_ui()
-        
+
     def load_enhanced_activity(self):
         """Cargar actividad de ejemplo mejorada"""
         activity_types = {

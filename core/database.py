@@ -101,11 +101,35 @@ class DatabaseManager:
         return result.get('data', []) if result.get('success') else []
 
     # ===== ESTADÍSTICAS =====
+    # def get_estadisticas(self) -> Dict:
+    #     """Obtener estadísticas del sistema"""
+    #     endpoint = "estadisticas.php"
+    #     result = self._make_request(endpoint)
+    #     return result.get('data', {}) if result.get('success') else {}
+    
+    # En core/database.py, comenta o modifica el método get_estadisticas:
+
     def get_estadisticas(self) -> Dict:
         """Obtener estadísticas del sistema"""
-        endpoint = "estadisticas.php"
-        result = self._make_request(endpoint)
-        return result.get('data', {}) if result.get('success') else {}
+        try:
+            # Si el endpoint no existe, calcular estadísticas localmente
+            canciones = self.get_canciones()
+            categorias = self.get_categorias()
+            
+            return {
+                'total_canciones': len(canciones),
+                'total_categorias': len(categorias),
+                'canciones_pendientes': len([c for c in canciones if c.get('estado') == 'pendiente']),
+                'canciones_activas': len([c for c in canciones if c.get('estado') == 'activo']),
+                'ultima_actualizacion': datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {'error': str(e)}
+        
+        # Opcional: si quieres intentar el endpoint primero
+        # endpoint = "estadisticas.php"
+        # result = self._make_request(endpoint)
+        # return result.get('data', {}) if result.get('success') else {}
 
     # ===== BACKUPS =====
     def create_backup(self, tipo: str = 'completo') -> Dict:
