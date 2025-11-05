@@ -6,6 +6,23 @@ import os
 import matplotlib
 matplotlib.use('TkAgg')  # Usar backend compatible con Tkinter
 
+# En main.py
+from core.database import DatabaseManager
+
+# Configurar conexión
+db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+
+# Probar conexión
+if db.test_connection():
+    print("✅ Conectado a la API")
+    
+    # Obtener canciones
+    canciones = db.get_canciones()
+    print(f"📝 {len(canciones)} canciones cargadas")
+else:
+    print("❌ Error de conexión")
+
+
 # Agregar paths para imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'ui'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'core'))

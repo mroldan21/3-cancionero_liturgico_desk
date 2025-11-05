@@ -48,7 +48,7 @@ class StyleManager:
         
         style.configure("TLabelframe.Label",
                        font=('Arial', 10, 'bold'),
-                       foreground=self.colors['primary'],
+                       font=('Arial', 12, 'bold'), # Aumentado de 10 a 12
                        background=self.colors['white'])
         
         # ===== BOTONES =====
@@ -57,7 +57,7 @@ class StyleManager:
         style.configure("Primary.TButton",
                        background=self.colors['secondary'],
                        foreground=self.colors['white'],
-                       borderwidth=1,
+                       borderwidth=0, # Reducido a 0 para un look más moderno
                        relief="raised",
                        focuscolor="none",
                        padding=(12, 6),
@@ -71,7 +71,7 @@ class StyleManager:
         style.configure("Success.TButton",
                        background=self.colors['success'],
                        foreground=self.colors['white'],
-                       padding=(12, 6),
+                       padding=(15, 8), # Aumentado de (12, 6) a (15, 8)
                        font=('Arial', 9, 'bold'))
         
         style.map("Success.TButton",
@@ -82,7 +82,7 @@ class StyleManager:
         style.configure("Warning.TButton",
                        background=self.colors['warning'],
                        foreground=self.colors['white'],
-                       padding=(12, 6),
+                       padding=(15, 8), # Aumentado de (12, 6) a (15, 8)
                        font=('Arial', 9, 'bold'))
         
         style.map("Warning.TButton",
@@ -93,7 +93,7 @@ class StyleManager:
         style.configure("Danger.TButton",
                        background=self.colors['accent'],
                        foreground=self.colors['white'],
-                       padding=(12, 6),
+                       padding=(15, 8), # Aumentado de (12, 6) a (15, 8)
                        font=('Arial', 9, 'bold'))
         
         style.map("Danger.TButton",
@@ -104,42 +104,49 @@ class StyleManager:
         style.configure("Info.TButton",
                        background=self.colors['info'],
                        foreground=self.colors['white'],
-                       padding=(10, 5),
-                       font=('Arial', 9))
+                       padding=(15, 8), # Aumentado de (10, 5) a (15, 8)
+                       font=('Arial', 11)) # Aumentado de 9 a 11
         
         # ===== LABELS =====
         
         # Label header principal
         style.configure("Header.TLabel",
-                       font=('Arial', 16, 'bold'),
+                       font=('Arial', 20, 'bold'), # Aumentado de 16 a 20
                        foreground=self.colors['primary'],
                        background=self.colors['white'])
         
         # Label subheader
         style.configure("Subheader.TLabel",
-                       font=('Arial', 12, 'bold'),
+                       font=('Arial', 14, 'bold'), # Aumentado de 12 a 14
                        foreground=self.colors['dark'],
                        background=self.colors['white'])
         
         # Label normal
         style.configure("Normal.TLabel",
-                       font=('Arial', 10),
+                       font=('Arial', 12), # Aumentado de 10 a 12
                        foreground=self.colors['text_primary'],
                        background=self.colors['white'])
         
         # Label secundario
         style.configure("Secondary.TLabel",
-                       font=('Arial', 9),
+                       font=('Arial', 11), # Aumentado de 9 a 11
                        foreground=self.colors['text_secondary'],
                        background=self.colors['white'])
         
         # Label pequeño
         style.configure("Small.TLabel",
-                       font=('Arial', 8),
+                       font=('Arial', 10), # Aumentado de 8 a 10
                        foreground=self.colors['text_light'],
                        background=self.colors['white'])
         
         # ===== ENTRADAS DE TEXTO =====
+        style.configure("TEntry",
+                       font=('Arial', 11), # Añadido tamaño de fuente
+                       fieldbackground=self.colors['white'],
+                       foreground=self.colors['text_primary'],
+                       borderwidth=1,
+                       relief="solid",
+                       padding=(8, 4)) # Aumentado de (5, 2) a (8, 4)
         
         style.configure("TEntry",
                        fieldbackground=self.colors['white'],
@@ -155,10 +162,12 @@ class StyleManager:
         # ===== COMBOBOX =====
         
         style.configure("TCombobox",
+                       font=('Arial', 11), # Añadido tamaño de fuente
                        fieldbackground=self.colors['white'],
                        foreground=self.colors['text_primary'],
                        background=self.colors['white'],
                        borderwidth=1,
+                       padding=(8, 4), # Añadido padding
                        relief="solid")
         
         style.map("TCombobox",
@@ -172,14 +181,14 @@ class StyleManager:
                        foreground=self.colors['text_primary'],
                        fieldbackground=self.colors['white'],
                        borderwidth=1,
-                       relief="solid",
-                       rowheight=25)
+                       relief="flat", # Cambiado a flat para un look más limpio
+                       rowheight=30) # Aumentado de 25 a 30
         
         style.configure("Treeview.Heading",
                        background=self.colors['light'],
                        foreground=self.colors['primary'],
                        relief="flat",
-                       borderwidth=1,
+                       borderwidth=0, # Reducido a 0
                        font=('Arial', 9, 'bold'))
         
         style.map("Treeview.Heading",
@@ -214,8 +223,8 @@ class StyleManager:
         
         style.configure("TNotebook.Tab",
                        background=self.colors['light'],
-                       foreground=self.colors['text_secondary'],
-                       padding=(15, 5),
+                       foreground=self.colors['primary'], # Cambiado a primary para mejor contraste
+                       padding=(18, 8), # Aumentado de (15, 5) a (18, 8)
                        font=('Arial', 9))
         
         style.map("TNotebook.Tab",
@@ -254,12 +263,14 @@ class StyleManager:
         
         style.configure("TCheckbutton",
                        background=self.colors['white'],
-                       foreground=self.colors['text_primary'],
+                       foreground=self.colors['text_primary'], # Aumentado de 9 a 11
+                       font=('Arial', 11),
                        indicatorcolor=self.colors['white'])
         
         style.configure("TRadiobutton",
                        background=self.colors['white'],
-                       foreground=self.colors['text_primary'],
+                       foreground=self.colors['text_primary'], # Aumentado de 9 a 11
+                       font=('Arial', 11),
                        indicatorcolor=self.colors['white'])
         
         self.styles_configured = True
@@ -299,18 +310,18 @@ class StyleManager:
         btn_canvas = tk.Canvas(parent, width=120, height=40, highlightthickness=0)
         btn_canvas.configure(bg=self.colors['white'])
         
-        # Dibujar gradiente simple
-        btn_canvas.create_rectangle(0, 0, 120, 40, fill=color1, outline=color1)
-        btn_canvas.create_text(60, 20, text=text, fill=self.colors['white'], 
-                              font=('Arial', 9, 'bold'))
+        # Dibujar gradiente simple (ajustar tamaño del botón y texto)
+        btn_canvas.create_rectangle(0, 0, 150, 50, fill=color1, outline=color1) # Aumentado tamaño del botón
+        btn_canvas.create_text(75, 25, text=text, fill=self.colors['white'], # Centrado el texto
+                              font=('Arial', 12, 'bold')) # Aumentado de 9 a 12
         
         # Bind events para efecto hover
         def on_enter(e):
             btn_canvas.configure(cursor="hand2")
             btn_canvas.delete("all")
-            btn_canvas.create_rectangle(0, 0, 120, 40, fill=color2, outline=color2)
-            btn_canvas.create_text(60, 20, text=text, fill=self.colors['white'], 
-                                  font=('Arial', 9, 'bold'))
+            btn_canvas.create_rectangle(0, 0, 150, 50, fill=color2, outline=color2)
+            btn_canvas.create_text(75, 25, text=text, fill=self.colors['white'], 
+                                  font=('Arial', 12, 'bold'))
         
         def on_leave(e):
             btn_canvas.delete("all")
@@ -319,7 +330,7 @@ class StyleManager:
                                   font=('Arial', 9, 'bold'))
         
         def on_click(e):
-            command()
+            command() # Mantener el comando original
         
         btn_canvas.bind("<Enter>", on_enter)
         btn_canvas.bind("<Leave>", on_leave)
