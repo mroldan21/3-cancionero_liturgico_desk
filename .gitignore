@@ -1,0 +1,56 @@
+# ############################################################################
+# Archivo .gitignore para un proyecto Python con Tkinter y venv
+# ############################################################################
+
+# Entornos Virtuales
+# Excluye la carpeta del entorno virtual para no subir las dependencias.
+# Cada desarrollador debe crear su propio entorno.
+/venv/
+/.venv/
+/env/
+/virtualenv/
+
+# Archivos compilados y caché de Python
+# Estos archivos se generan automáticamente y no son necesarios en el repo.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Bases de datos
+# Excluye archivos de bases de datos locales para evitar conflictos y
+# no subir datos de prueba.
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+
+# Configuraciones de IDE y editores
+# Evita subir configuraciones personales de tu entorno de desarrollo.
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Archivos de registro (Logs)
+# Los logs son específicos de cada ejecución y no deben versionarse.
+*.log
+logs/
+
+# Archivos de sistema operativo
+# Archivos generados por macOS, Windows y Linux.
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Distribución y empaquetado
+# Carpetas generadas al crear paquetes distribuibles (ej. con PyInstaller).
+/dist/
+/build/
+*.spec
+
+# Archivos de configuración sensibles
+# Es una buena práctica mantener las credenciales y secretos fuera del control de versiones.
+# Si tienes un archivo de configuración, puedes descomentar la siguiente línea.
+# config.ini
+# .env
