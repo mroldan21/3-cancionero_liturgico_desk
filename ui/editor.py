@@ -363,6 +363,23 @@ class Editor:
         self.chords_listbox.delete(0, tk.END)
         self.text_editor.edit_modified(False)
         
+    def load_song_data(self, song_data):
+        """Cargar datos de una canción desde un diccionario"""
+        self.clear_editor()
+        self.current_song = song_data
+        self.populate_editor()
+        
+    def clear_editor(self):
+        """Limpiar editor"""
+        self.title_entry.delete(0, tk.END)
+        self.artist_entry.delete(0, tk.END)
+        self.category_combo.set('')
+        self.key_combo.set('C')
+        self.bpm_entry.delete(0, tk.END)
+        self.text_editor.delete(1.0, tk.END)
+        self.chords_listbox.delete(0, tk.END)
+        self.text_editor.edit_modified(False)
+        
     def populate_editor(self):
         """Llenar editor con datos de canción"""
         if not self.current_song:
@@ -540,10 +557,28 @@ class Editor:
         
     def save_song(self):
         """Guardar canción"""
-        if not self.title_entry.get().strip():
+        title = self.title_entry.get().strip()
+        if not title:
             messagebox.showerror("Error", "El título es obligatorio")
             return
-            
-        # Simular guardado
-        messagebox.showinfo("Guardar", "Canción guardada correctamente")
-        self.text_editor.edit_modified(False)
+
+        song_data = {
+            'titulo': title,
+            'artista': self.artist_entry.get().strip(),
+            'letra': self.text_editor.get(1.0, tk.END).strip(),
+            'tono_original': self.key_combo.get(),
+            'bpm': self.bpm_entry.get().strip(),
+            'categoria_nombre': self.category_combo.get() # Usar un nombre de campo que la API/procesador entienda
+        }
+
+        # Si es una canción existente, tendrá un ID
+        if self.current_song and 'id' in self.current_song:
+            result = self.app.database.update_cancion(self.current_song['id'], song_data)
+        else: # Es una canción nueva
+            result = self.app.database.create_cancion(song_data)
+
+        if result.get('success'):
+            messagebox.showinfo("Guardar", "Canción guardada correctamente en la base de datos.")
+            self.text_editor.edit_modified(False)
+        else:
+            messagebox.showerror("Error al Guardar", f"No se pudo guardar la canción: {result.get('error', 'Error desconocido')}")

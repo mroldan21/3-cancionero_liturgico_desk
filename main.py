@@ -194,10 +194,12 @@ class LiturgyConverterApp:
         self.clear_content()
         self.current_module = ImportModule(self.content_frame, self)
         
-    def show_editor(self):
+    def show_editor(self, song_data=None):
         """Mostrar editor avanzado"""
         self.clear_content()
         self.current_module = Editor(self.content_frame, self)
+        if song_data:
+            self.current_module.load_song_data(song_data)
         
     def show_content_manager(self):
         """Mostrar gestor de contenido"""

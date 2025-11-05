@@ -50,37 +50,40 @@ class ImportModule:
 
     # Modificar el método process_files_thread:
     def process_files_thread(self):
-        """Procesar archivos en hilo separado"""
-        total_files = len(self.selected_files)
-        
-        # Configurar opciones de procesamiento
-        options = {
-            'use_pdfplumber': True,
-            'auto_detect_structure': self.auto_detect.get(),
-            'extract_chords': self.auto_chords.get()
-        }
-        
-        # Procesar archivos
-        results = self.file_processor.process_files_batch(
-            [f['path'] for f in self.selected_files], 
-            options
-        )
-        
-        # Guardar canciones encontradas
-        all_songs = []
-        for file_result in results['file_results']:
-            if file_result['success']:
-                all_songs.extend(file_result.get('songs_found', []))
-        
-        if all_songs:
-            save_results = self.file_processor.save_songs_to_database(all_songs)
-            messagebox.showinfo("Procesamiento Completado", 
-                            f"Se encontraron {len(all_songs)} canciones y se guardaron {save_results['saved_songs']}")
-        else:
-            messagebox.showinfo("Procesamiento Completado", 
-                            "No se encontraron canciones en los archivos procesados")
-        
-        self.processing = False
+         """Procesar archivos en hilo separado"""
+         print("1.1 Procesando archivos en hilo separado...")
+ 
+         total_files = len(self.selected_files)
+ 
+         # Configurar opciones de procesamiento
+         options = {
+             'use_pdfplumber': True,
+             'auto_detect_structure': self.auto_detect.get(),
+             'extract_chords': self.auto_chords.get()
+         }
+ 
+         # Procesar archivos
+         print("1.2 Procesando archivos...")
+         results = self.file_processor.process_files_batch(
+             [f['path'] for f in self.selected_files],
+             options
+         )
+ 
+         # Enviar canciones encontradas al editor
+         print("1.3 Guardando canciones encontradas...")
+         songs_found = []
+         for file_result in results['file_results']:
+             if file_result['success'] and file_result.get('songs_found'):
+                 songs_found.extend(file_result['songs_found'])
+ 
+         if songs_found:
+             for song_data in songs_found:
+                 # Usar root.after para llamar a la UI desde el hilo principal
+                 self.app.root.after(0, self.app.show_editor, song_data)
+         else:
+             self.app.root.after(0, lambda: messagebox.showinfo("Procesamiento Completado", "No se encontraron canciones en los archivos procesados."))
+ 
+         self.processing = False
 
     def create_config_panel(self):
         """Crear panel de configuración expandido"""
@@ -194,7 +197,7 @@ class ImportModule:
         files_frame = ttk.LabelFrame(self.main_frame,
                                    text="📁 Archivos Seleccionados",
                                    padding=15)
-        files_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        files_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
         # Toolbar de archivos
         toolbar = ttk.Frame(files_frame)
@@ -505,32 +508,7 @@ class ImportModule:
         thread = threading.Thread(target=self.process_files_thread)
         thread.daemon = True
         thread.start()
-    
-    def process_files_thread(self):
-        """Procesar archivos en hilo separado"""
-        total_files = len(self.selected_files)
         
-        for i, file_info in enumerate(self.selected_files):
-            if not self.processing:
-                break
-                
-            # Actualizar progreso
-            progress = (i / total_files) * 100
-            self.progress_var.set(progress)
-            self.update_progress_label(f"Procesando: {file_info['name']} ({i+1}/{total_files})")
-            
-            # Simular procesamiento
-            time.sleep(1)  # Simular trabajo
-            
-            # Actualizar estado en treeview
-            self.update_file_status(file_info['name'], '✅ Completado')
-            
-        if self.processing:
-            self.progress_var.set(100)
-            self.update_progress_label("Procesamiento completado")
-            messagebox.showinfo("Completado", f"Se procesaron {total_files} archivos correctamente")
-            self.processing = False
-    
     def update_file_status(self, file_name, status):
         """Actualizar estado de un archivo en el treeview"""
         for item in self.files_tree.get_children():
