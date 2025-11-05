@@ -72,11 +72,11 @@ class LiturgyConverterApp:
         # Header
         self.create_header()
         
-        # Contenido principal
-        self.create_main_content()
-        
         # Status bar
         self.create_status_bar()
+
+        # Contenido principal
+        self.create_main_content()
         
     def create_header(self):
         """Crear header de la aplicación"""
