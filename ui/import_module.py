@@ -50,40 +50,67 @@ class ImportModule:
 
     # Modificar el método process_files_thread:
     def process_files_thread(self):
-         """Procesar archivos en hilo separado"""
-         print("1.1 Procesando archivos en hilo separado...")
+        """Procesar archivos en hilo separado"""
+        print("1.1 Procesando archivos en hilo separado...")
+
+        total_files = len(self.selected_files)
+
+        # Configurar opciones de procesamiento
+        options = {
+            'use_pdfplumber': True,
+            'auto_detect_structure': self.auto_detect.get(),
+            'extract_chords': self.auto_chords.get()
+        }
+
+        # Procesar archivos
+        print("1.2 Procesando archivos...")
+        results = self.file_processor.process_files_batch(
+            [f['path'] for f in self.selected_files],
+            options
+        )
  
-         total_files = len(self.selected_files)
+         # Guardar canciones encontradas como pendientes
+        all_songs = []
+        for file_result in results['file_results']:
+            if file_result['success']:
+                all_songs.extend(file_result.get('songs_found', []))
+        
+        if all_songs:
+            # Guardar en BD con estado "pendiente"
+            for song in all_songs:
+                song['estado'] = 'pendiente'  # Marcar como pendiente de revisión
+                song['fuente'] = 'importacion_pdf'
+            
+            save_results = self.file_processor.save_songs_to_database(all_songs)
+            
+            # Preguntar si ir al editor
+            if save_results['saved_songs'] > 0:
+                if messagebox.askyesno("Procesamiento Completado", 
+                                    f"Se importaron {save_results['saved_songs']} canciones. ¿Quieres revisarlas en el editor ahora?"):
+                    # Navegar al editor
+                    self.app.show_editor()
+        else:
+            messagebox.showinfo("Procesamiento Completado", 
+                            "No se encontraron canciones en los archivos procesados")
+        
+        self.processing = False
+    
+        # Actualizar estado de archivos   
+        #  # Enviar canciones encontradas al editor
+        #  print("1.3 Guardando canciones encontradas...")
+        #  songs_found = []
+        #  for file_result in results['file_results']:
+        #      if file_result['success'] and file_result.get('songs_found'):
+        #          songs_found.extend(file_result['songs_found'])
  
-         # Configurar opciones de procesamiento
-         options = {
-             'use_pdfplumber': True,
-             'auto_detect_structure': self.auto_detect.get(),
-             'extract_chords': self.auto_chords.get()
-         }
+        #  if songs_found:
+        #      for song_data in songs_found:
+        #          # Usar root.after para llamar a la UI desde el hilo principal
+        #          self.app.root.after(0, self.app.show_editor, song_data)
+        #  else:
+        #      self.app.root.after(0, lambda: messagebox.showinfo("Procesamiento Completado", "No se encontraron canciones en los archivos procesados."))
  
-         # Procesar archivos
-         print("1.2 Procesando archivos...")
-         results = self.file_processor.process_files_batch(
-             [f['path'] for f in self.selected_files],
-             options
-         )
- 
-         # Enviar canciones encontradas al editor
-         print("1.3 Guardando canciones encontradas...")
-         songs_found = []
-         for file_result in results['file_results']:
-             if file_result['success'] and file_result.get('songs_found'):
-                 songs_found.extend(file_result['songs_found'])
- 
-         if songs_found:
-             for song_data in songs_found:
-                 # Usar root.after para llamar a la UI desde el hilo principal
-                 self.app.root.after(0, self.app.show_editor, song_data)
-         else:
-             self.app.root.after(0, lambda: messagebox.showinfo("Procesamiento Completado", "No se encontraron canciones en los archivos procesados."))
- 
-         self.processing = False
+        #  self.processing = False
 
     def create_config_panel(self):
         """Crear panel de configuración expandido"""
