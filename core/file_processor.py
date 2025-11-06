@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 import threading
 from datetime import datetime
 import re
+import json
 
 # Try to import PDF processing libraries
 try:
@@ -92,78 +93,78 @@ class FileProcessor:
                 'success': False,
                 'error': f'Error procesando PDF: {str(e)}'
             }
-    
-            
-    # def _process_with_pdfplumber(self, file_path: str, options: Dict) -> Dict:
-    #     """Procesar PDF usando pdfplumber (más avanzado)"""
-    #     self._update_progress("Extrayendo texto con pdfplumber...", 30)
         
-    #     songs_found = []
-    #     total_pages = 0
-    #     extracted_text = ""
+
+    # def _process_with_pdfplumber(self, file_path: str, options: Dict) -> Dict:
+    #     """Procesar PDF como UNA sola canción por archivo"""
+    #     self._update_progress("Extrayendo texto completo del PDF...", 30)
+    #     print ("2. Extrayendo texto completo del PDF...")
         
     #     try:
     #         with pdfplumber.open(file_path) as pdf:
     #             total_pages = len(pdf.pages)
-    #             self._update_progress(f"Analizando {total_pages} páginas...", 40)
+    #             print (f"2.1 Extrayendo texto de {total_pages} páginas...")
+    #             self._update_progress(f"Extrayendo texto de {total_pages} páginas...", 40)
                 
+    #             # Extraer TODO el texto como una sola canción, preservando espacios
+    #             full_text = ""
     #             for page_num, page in enumerate(pdf.pages):
-    #                 # Extraer texto
-    #                 text = page.extract_text() or ""
-    #                 extracted_text += f"\n--- Página {page_num + 1} ---\n{text}"
+    #                 # Reconstruir texto preservando espacios aplicando gaps entre caracteres
+    #                 page_text = self._reconstruct_text_from_page(page)
+    #                 full_text += page_text + "\n"
                     
-    #                 # Progreso por página
     #                 progress = 40 + (page_num / total_pages) * 40
-    #                 self._update_progress(f"Procesando página {page_num + 1}/{total_pages}", progress)
-                    
-    #                 # Si hay texto, intentar identificar canciones
-    #                 if text.strip():
-    #                     page_songs = self._analyze_text_for_songs(text, page_num + 1)
-    #                     songs_found.extend(page_songs)
-                        
+    #                 self._update_progress(f"Página {page_num + 1}/{total_pages}", progress)
+    #                 print (f"2.2 Página {page_num + 1}/{total_pages}")
+                
+    #             # Crear UNA sola canción con todo el contenido
+    #             song = self._create_single_song_from_text(full_text, file_path)
+    #             print ("2.3 Creado contenido de la canción: ", song)
+    #             songs_found = [song] if song else []
+                
     #     except Exception as e:
     #         self.logger.error(f"Error con pdfplumber: {e}")
-    #         return {
-    #             'success': False,
-    #             'error': f'Error pdfplumber: {str(e)}'
-    #         }
+    #         return {'success': False, 'error': f'Error pdfplumber: {str(e)}'}
             
     #     return {
     #         'success': True,
     #         'file_type': 'pdf',
     #         'total_pages': total_pages,
-    #         'songs_found': songs_found,
-    #         'extracted_text': extracted_text,
+    #         'songs_found': songs_found,  # Solo UNA canción
+    #         'extracted_text': full_text,
     #         'processed_with': 'pdfplumber'
     #     }
 
     def _process_with_pdfplumber(self, file_path: str, options: Dict) -> Dict:
-        """Procesar PDF como UNA sola canción por archivo"""
+        """Procesar PDF preservando mejor la estructura espacial"""
         self._update_progress("Extrayendo texto completo del PDF...", 30)
-        print ("2. Extrayendo texto completo del PDF...")
+        print("Extrayendo texto completo del PDF...")
         
         try:
             with pdfplumber.open(file_path) as pdf:
                 total_pages = len(pdf.pages)
-                print (f"2.1 Extrayendo texto de {total_pages} páginas...")
+                print(f"Extrayendo texto de {total_pages} páginas...")
                 self._update_progress(f"Extrayendo texto de {total_pages} páginas...", 40)
                 
-                # Extraer TODO el texto como una sola canción, preservando espacios
+                # Extraer TODO el texto preservando estructura
                 full_text = ""
                 for page_num, page in enumerate(pdf.pages):
-                    # Reconstruir texto preservando espacios aplicando gaps entre caracteres
-                    page_text = self._reconstruct_text_from_page(page)
-                    full_text += page_text + "\n"
+                    # Usar extracción con layout preservation
+                    text = self._extract_text_preserving_layout(page)
+                    full_text += text + "\n\n"  # Doble salto entre páginas
                     
                     progress = 40 + (page_num / total_pages) * 40
                     self._update_progress(f"Página {page_num + 1}/{total_pages}", progress)
-                    print (f"2.2 Página {page_num + 1}/{total_pages}")
+                    print(f"Página {page_num + 1}/{total_pages}")
+                
+                # Limpiar y normalizar el texto
+                cleaned_text = self._clean_extracted_text(full_text)
                 
                 # Crear UNA sola canción con todo el contenido
-                song = self._create_single_song_from_text(full_text, file_path)
-                print ("2.3 Creado contenido de la canción: ", song)
+                song = self._create_single_song_from_text(cleaned_text, file_path)
+                print("Contenido de la canción creado")
                 songs_found = [song] if song else []
-                
+                    
         except Exception as e:
             self.logger.error(f"Error con pdfplumber: {e}")
             return {'success': False, 'error': f'Error pdfplumber: {str(e)}'}
@@ -172,10 +173,117 @@ class FileProcessor:
             'success': True,
             'file_type': 'pdf',
             'total_pages': total_pages,
-            'songs_found': songs_found,  # Solo UNA canción
+            'songs_found': songs_found,
             'extracted_text': full_text,
-            'processed_with': 'pdfplumber'
+            'cleaned_text': cleaned_text,
+            'processed_with': 'pdfplumber_improved'
         }
+
+    def _extract_text_preserving_layout(self, page) -> str:
+        """Extraer texto preservando la estructura layout del PDF"""
+        text = ""
+        
+        # Método 1: Extracción simple (fallback)
+        simple_text = page.extract_text() or ""
+        
+        # Método 2: Extracción por palabras con coordenadas (más preciso)
+        try:
+            words = page.extract_words(
+                keep_blank_chars=False, 
+                use_text_flow=True,
+                extra_attrs=["x0", "top", "x1", "bottom"]  # Agregar atributos necesarios
+            )
+            if words:
+                # Ordenar palabras por posición (top, luego left)
+                words_sorted = sorted(words, key=lambda x: (x.get('top', 0), x.get('x0', 0)))
+                
+                # Reconstruir texto manteniendo estructura
+                lines = {}
+                for word in words_sorted:
+                    line_key = int(word.get('top', 0))  # Agrupar por línea aproximada
+                    if line_key not in lines:
+                        lines[line_key] = []
+                    lines[line_key].append(word.get('text', ''))
+                
+                # Construir texto línea por línea
+                text_lines = []
+                for line_key in sorted(lines.keys()):
+                    line_text = ' '.join(lines[line_key])
+                    text_lines.append(line_text)
+                
+                text = '\n'.join(text_lines)
+            else:
+                text = simple_text
+        except Exception as e:
+            print(f"⚠️ Error en extracción avanzada, usando método simple: {e}")
+            text = simple_text
+        
+        return text
+
+    def _clean_extracted_text(self, text: str) -> str:
+        """Limpiar y normalizar texto extraído del PDF"""
+        if not text:
+            return ""
+        
+        # 1. Normalizar saltos de línea
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # 2. Unir líneas muy cortas (probablemente fragmentadas)
+            if (len(line) < 30 and 
+                cleaned_lines and 
+                len(cleaned_lines[-1]) < 50):
+                cleaned_lines[-1] += " " + line
+            else:
+                cleaned_lines.append(line)
+        
+        # 3. Unir estrofas lógicas (líneas que parecen versos)
+        final_lines = []
+        i = 0
+        while i < len(cleaned_lines):
+            current_line = cleaned_lines[i]
+            
+            # Si es una línea corta y la siguiente también, unirlas
+            if (i + 1 < len(cleaned_lines) and
+                len(current_line) < 40 and
+                len(cleaned_lines[i + 1]) < 40 and
+                not self._looks_like_chord_line(current_line) and
+                not self._looks_like_chord_line(cleaned_lines[i + 1])):
+                
+                # Unir líneas consecutivas cortas
+                joined_line = current_line + " " + cleaned_lines[i + 1]
+                final_lines.append(joined_line)
+                i += 2
+            else:
+                final_lines.append(current_line)
+                i += 1
+        
+        return '\n'.join(final_lines)
+
+    def _looks_like_chord_line(self, line: str) -> bool:
+        """Determinar si una línea parece ser de acordes - SIEMPRE RETORNA FALSE"""
+        # Desactivado: no diferenciamos líneas de acordes
+        return False
+        
+        # Código original comentado:
+        # line = line.strip()
+        # 
+        # # Patrones simples para líneas de acordes
+        # chord_indicators = [
+        #     len(line) < 30,  # Líneas cortas
+        #     len(line.split()) <= 4,  # Pocas palabras
+        #     any(word.upper() in line.upper() for word in 
+        #         ['DO', 'RE', 'MI', 'FA', 'SOL', 'LA', 'SI', 
+        #          'C', 'D', 'E', 'F', 'G', 'A', 'B',
+        #          'M', 'm', '7', 'dim', 'aug', 'sus'])
+        # ]
+        # 
+        # return any(chord_indicators)
 
     def _reconstruct_text_from_page(self, page) -> str:
         """
@@ -258,8 +366,41 @@ class FileProcessor:
             # Fallback al extract_text convencional
             return page.extract_text() or ""
 
+    # def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
+    #     """Crear una sola canción desde el texto completo del PDF"""
+    #     lines = text.split('\n')
+        
+    #     # Usar el nombre del archivo como título por defecto
+    #     file_name = os.path.splitext(os.path.basename(file_path))[0]
+        
+    #     # Buscar título real en las primeras líneas
+    #     title = self._extract_title_from_text(lines, file_name)
+        
+    #     # Detectar formato de la canción
+    #     if self._has_structured_format(text):
+    #         # Formato estructurado: con [ACORDES] y [SECCIONES]
+    #         all_chords = self._extract_chords_structured(text)
+    #         formatted_lyrics = self._format_structured_lyrics(text)
+    #     else:
+    #         # Formato no estructurado: acordes en líneas separadas
+    #         all_chords = self._extract_chords_unstructured(text)
+    #         formatted_lyrics = self._format_unstructured_lyrics(text)
+        
+    #     probable_key = self._detect_probable_key(all_chords)
+        
+    #     return {
+    #         'titulo': title,
+    #         'artista': 'Desconocido',
+    #         'letra': formatted_lyrics.strip(),
+    #         'tono_original': probable_key,
+    #         'acordes': ','.join(all_chords),
+    #         'estado': 'pendiente',
+    #         'categoria_id': 1,
+    #         'notas': f"Importado desde PDF: {os.path.basename(file_path)}"
+    #     }
+
     def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
-        """Crear una sola canción desde el texto completo del PDF"""
+        """Crear una sola canción desde el texto completo del PDF - SIN procesar acordes"""
         lines = text.split('\n')
         
         # Usar el nombre del archivo como título por defecto
@@ -268,58 +409,83 @@ class FileProcessor:
         # Buscar título real en las primeras líneas
         title = self._extract_title_from_text(lines, file_name)
         
-        # Detectar formato de la canción
-        if self._has_structured_format(text):
-            # Formato estructurado: con [ACORDES] y [SECCIONES]
-            all_chords = self._extract_chords_structured(text)
-            formatted_lyrics = self._format_structured_lyrics(text)
-        else:
-            # Formato no estructurado: acordes en líneas separadas
-            all_chords = self._extract_chords_unstructured(text)
-            formatted_lyrics = self._format_unstructured_lyrics(text)
+        # NO procesar acordes automáticamente - tratarlos como texto normal
+        # En lugar de extraer acordes, simplemente usar texto completo
+        all_chords = []  # Lista vacía - no procesamos acordes
         
-        probable_key = self._detect_probable_key(all_chords)
+        # Detectar tonalidad básica (opcional, simplificado)
+        probable_key = self._detect_tonality_from_text(text)
         
         return {
             'titulo': title,
             'artista': 'Desconocido',
-            'letra': formatted_lyrics.strip(),
+            'letra': text.strip(),  # Texto completo sin modificar acordes
             'tono_original': probable_key,
-            'acordes': ','.join(all_chords),
+            'acordes': '',  # Vacío - no procesamos acordes automáticamente
             'estado': 'pendiente',
             'categoria_id': 1,
             'notas': f"Importado desde PDF: {os.path.basename(file_path)}"
         }
 
+    def _detect_tonality_from_text(self, text: str) -> str:
+        """Detección simplificada de tonalidad (opcional)"""
+        # Buscar indicios de tonalidad en el texto
+        lines = text.split('\n')
+        
+        for line in lines[:10]:  # Buscar en primeras líneas
+            line_upper = line.upper()
+            
+            # Buscar patrones comunes de tonalidad
+            if ' TONO: ' in line_upper or ' TONALIDAD: ' in line_upper:
+                for key in ['DO', 'RE', 'MI', 'FA', 'SOL', 'LA', 'SI', 'C', 'D', 'E', 'F', 'G', 'A', 'B']:
+                    if key in line_upper:
+                        return key
+            
+            # Buscar acordes comunes al inicio
+            common_keys = {
+                'C': ['DO', 'C'],
+                'G': ['SOL', 'G'], 
+                'D': ['RE', 'D'],
+                'A': ['LA', 'A'],
+                'E': ['MI', 'E'],
+                'F': ['FA', 'F']
+            }
+            
+            for key, indicators in common_keys.items():
+                if any(indicator in line_upper for indicator in indicators):
+                    return key
+        
+        return 'C'  # Tonalidad por defecto
+    
     def _has_structured_format(self, text: str) -> bool:
         """Detectar si la canción usa formato estructurado con corchetes"""
         # Si encuentra patrones [ACORDE] o [SECCIÓN], es estructurado
         return bool(re.search(r'\[[A-G][#b]?\]|\[(VERSO|CORO|ESTRIBILLO)\]', text, re.IGNORECASE))
 
-    def _extract_chords_structured(self, text: str) -> List[str]:
-        """Extraer acordes de formato estructurado [Acorde]"""
-        chords = re.findall(r'\[([A-G][#b]?[0-9]*(?:m|maj|min|dim|aug)?[0-9]*)\]', text, re.IGNORECASE)
-        return list(set(chords))
+    # def _extract_chords_structured(self, text: str) -> List[str]:
+    #     """Extraer acordes de formato estructurado [Acorde]"""
+    #     chords = re.findall(r'\[([A-G][#b]?[0-9]*(?:m|maj|min|dim|aug)?[0-9]*)\]', text, re.IGNORECASE)
+    #     return list(set(chords))
 
-    def _extract_chords_unstructured(self, text: str) -> List[str]:
-        """Extraer acordes de formato no estructurado (líneas separadas)"""
-        lines = text.split('\n')
-        chords = []
+    # def _extract_chords_unstructured(self, text: str) -> List[str]:
+    #     """Extraer acordes de formato no estructurado (líneas separadas)"""
+    #     lines = text.split('\n')
+    #     chords = []
         
-        # Patrón para acordes musicales
-        chord_pattern = r'\b([A-G][#b]?(?:m|maj|min|dim|aug)?[0-9]*)\b'
+    #     # Patrón para acordes musicales
+    #     chord_pattern = r'\b([A-G][#b]?(?:m|maj|min|dim|aug)?[0-9]*)\b'
         
-        for line in lines:
-            line = line.strip()
-            # Si la línea parece ser solo acordes (pocas palabras, muchos acordes)
-            if (len(line.split()) <= 3 and 
-                re.search(chord_pattern, line, re.IGNORECASE) and
-                len(line) < 30):
+    #     for line in lines:
+    #         line = line.strip()
+    #         # Si la línea parece ser solo acordes (pocas palabras, muchos acordes)
+    #         if (len(line.split()) <= 3 and 
+    #             re.search(chord_pattern, line, re.IGNORECASE) and
+    #             len(line) < 30):
                 
-                found_chords = re.findall(chord_pattern, line, re.IGNORECASE)
-                chords.extend(found_chords)
+    #             found_chords = re.findall(chord_pattern, line, re.IGNORECASE)
+    #             chords.extend(found_chords)
         
-        return list(set(chords))
+    #     return list(set(chords))
 
     def _format_structured_lyrics(self, text: str) -> str:
         """Formatear letra en formato estructurado (ya está bien formateada)"""
@@ -465,87 +631,6 @@ class FileProcessor:
             'extracted_text': extracted_text,
             'processed_with': 'pypdf2'
         }
-        
-    # def _analyze_text_for_songs(self, text: str, page_num: int) -> List[Dict]:
-    #     """
-    #     Analizar texto extraído para identificar canciones
-        
-    #     Args:
-    #         text: Texto a analizar
-    #         page_num: Número de página
-            
-    #     Returns:
-    #         Lista de canciones identificadas
-    #     """
-    #     songs = []
-    #     lines = text.split('\n')
-        
-    #     # Patrones para identificar canciones
-    #     current_song = None
-    #     current_section = None
-    #     content_lines = []
-        
-    #     for i, line in enumerate(lines):
-    #         line = line.strip()
-    #         if not line:
-    #             continue
-                
-    #         # Detectar título de canción (líneas en mayúsculas o con patrones)
-    #         if self._is_song_title(line, lines, i):
-    #             # Guardar canción anterior si existe
-    #             if current_song and content_lines:
-    #                 current_song['content'] = '\n'.join(content_lines)
-    #                 current_song = self._finalize_song(current_song)
-    #                 if current_song:
-    #                     songs.append(current_song)
-                
-    #             # Nueva canción
-    #             current_song = {
-    #                 'titulo': line,
-    #                 'artista': 'Desconocido',
-    #                 'letra': '',
-    #                 'content_lines': [],
-    #                 'page': page_num,
-    #                 'line_start': i + 1,
-    #                 'sections': [],
-    #                 'acordes_detectados': []
-    #             }
-    #             content_lines = [line]
-    #             current_section = 'INICIO'
-                
-    #         # Detectar secciones musicales
-    #         elif self._is_song_section(line):
-    #             if current_song:
-    #                 section_name = self._extract_section_name(line)
-    #                 current_song['sections'].append(section_name)
-    #                 content_lines.append(f"\n[{section_name}]")
-    #                 current_section = section_name
-    #             else:
-    #                 content_lines.append(line)
-                    
-    #         # Detectar acordes
-    #         elif self._contains_chords(line):
-    #             if current_song:
-    #                 chords = self._extract_chords(line)
-    #                 current_song['acordes_detectados'].extend(chords)
-    #                 # Formatear línea con acordes
-    #                 formatted_line = self._format_chord_line(line)
-    #                 content_lines.append(formatted_line)
-    #             else:
-    #                 content_lines.append(line)
-                    
-    #         # Línea de letra normal
-    #         else:
-    #             content_lines.append(line)
-                
-    #     # Procesar última canción
-    #     if current_song and content_lines:
-    #         current_song['content'] = '\n'.join(content_lines)
-    #         current_song = self._finalize_song(current_song)
-    #         if current_song:
-    #             songs.append(current_song)
-                
-    #     return songs
     
     def _analyze_text_for_songs(self, text: str, page_num: int) -> List[Dict]:
         """NO USAR - Cada PDF es una sola canción"""
@@ -590,17 +675,21 @@ class FileProcessor:
         return line.upper()
         
     def _contains_chords(self, line: str) -> bool:
-        """Determinar si una línea contiene acordes"""
-        # Patrón básico de acordes: [A], [Cm], [G7], etc.
-        chord_patterns = [
-            r'\[[A-G][#b]?[0-9]*(m|maj|min|dim|aug)?[0-9]*\]',
-            r'\b[A-G][#b]?(m|maj|min|dim|aug)?[0-9]*\b'
-        ]
-        import re
-        for pattern in chord_patterns:
-            if re.search(pattern, line, re.IGNORECASE):
-                return True
+        """Determinar si una línea contiene acordes - SIEMPRE RETORNA FALSE"""
+        # Desactivado: no procesamos acordes automáticamente
         return False
+        
+        # Código original comentado:
+        # # Patrón básico de acordes: [A], [Cm], [G7], etc.
+        # chord_patterns = [
+        #     r'\[[A-G][#b]?[0-9]*(m|maj|min|dim|aug)?[0-9]*\]',
+        #     r'\b[A-G][#b]?(m|maj|min|dim|aug)?[0-9]*\b'
+        # ]
+        # import re
+        # for pattern in chord_patterns:
+        #     if re.search(pattern, line, re.IGNORECASE):
+        #         return True
+        # return False
         
     def _extract_chords(self, line: str) -> List[str]:
         """Extraer acordes de una línea"""
@@ -708,6 +797,7 @@ class FileProcessor:
                     
         self._update_progress("Procesamiento completado", 100)
         return results    
+    
     def _process_single_file(self, file_path: str, options: Dict) -> Dict:
         """Procesar un solo archivo según su tipo"""
         file_ext = os.path.splitext(file_path)[1].lower()
