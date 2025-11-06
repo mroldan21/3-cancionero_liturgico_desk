@@ -11,6 +11,7 @@ class ImportModule:
         self.app = app
         self.selected_files = []
         self.processing = False
+        self.imported_songs = []  # Add storage for imported songs
 
         # Inicializar procesador de archivos
         self.file_processor = FileProcessor(app.database)
@@ -71,9 +72,18 @@ class ImportModule:
  
          # Guardar canciones encontradas como pendientes
         all_songs = []
-        for file_result in results['file_results']:
+        for idx, file_result in enumerate(results['file_results']):
             if file_result['success']:
-                all_songs.extend(file_result.get('songs_found', []))
+                found = file_result.get('songs_found', [])
+                if found:
+                    all_songs.extend(found)
+                else:
+                    # Marcar archivo sin canciones
+                    if idx < len(self.selected_files):
+                        self.update_file_status(self.selected_files[idx]['name'], 'ℹ️ Sin canciones')
+            else:
+                if idx < len(self.selected_files):
+                    self.update_file_status(self.selected_files[idx]['name'], '❌ Error')
         
         if all_songs:
             # Guardar en BD con estado "pendiente"
@@ -88,16 +98,11 @@ class ImportModule:
                 if messagebox.askyesno("Procesamiento Completado", 
                                     f"Se importaron {save_results['saved_songs']} canciones (una por archivo). ¿Quieres revisarlas en el editor ahora?"):
                     self.app.show_editor()
-
-            # Preguntar si ir al editor
-            # if save_results['saved_songs'] > 0:
-            #     if messagebox.askyesno("Procesamiento Completado", 
-            #                         f"Se importaron {save_results['saved_songs']} canciones. ¿Quieres revisarlas en el editor ahora?"):
-            #         # Navegar al editor
-            #         self.app.show_editor()
         else:
-            messagebox.showinfo("Procesamiento Completado", 
-                            "No se encontraron canciones en los archivos procesados")
+            # Actualizar UI indicando que no se encontraron canciones
+            self.progress_var.set(100)
+            self.update_progress_label("ℹ️ No se encontraron canciones para procesar")
+            messagebox.showinfo("Procesamiento Completado", "No se encontraron canciones para procesar")
         
         self.processing = False
     
@@ -262,7 +267,7 @@ class ImportModule:
         self.files_tree = ttk.Treeview(files_frame, 
                                      columns=columns, 
                                      show='headings',
-                                     height=8)
+                                     height=3)
         
         # Configurar columnas
         self.files_tree.heading('nombre', text='Nombre Archivo')
@@ -298,7 +303,7 @@ class ImportModule:
         
         # Área de vista previa
         self.preview_text = tk.Text(self.preview_frame, 
-                                  height=10, 
+                                  height=7, 
                                   wrap=tk.WORD,
                                   font=('Courier', 10))
         
@@ -543,75 +548,100 @@ class ImportModule:
 
     def process_files_direct(self):
         """Procesar archivos directamente en el hilo principal"""
-        total_files = len(self.selected_files)
-        
-        # Configurar opciones de procesamiento
-        options = {
-            'use_pdfplumber': True,
-            'auto_detect_structure': self.auto_detect.get(),
-            'extract_chords': self.auto_chords.get()
-        }
-        
-        # Procesar cada archivo individualmente
-        all_songs = []
-        
-        for i, file_info in enumerate(self.selected_files):
-            file_path = file_info['path']
-            
-            # Actualizar progreso
-            progress = (i / total_files) * 100
-            self.progress_var.set(progress)
-            self.update_progress_label(f"Procesando: {os.path.basename(file_path)} ({i+1}/{total_files})")
-            
-            # Procesar archivo individual
-            file_result = self.file_processor.process_pdf_file(file_path, options)
-            
-            if file_result['success']:
-                songs_found = file_result.get('songs_found', [])
-                all_songs.extend(songs_found)
-                
-                # Actualizar estado en treeview
-                self.update_file_status(file_info['name'], '✅ Completado')
-            else:
-                self.update_file_status(file_info['name'], '❌ Error')
-                print(f"Error procesando {file_info['name']}: {file_result.get('error')}")
-            
-            # Pequeña pausa para que la UI se actualice
-            self.parent.update()
-        
-        # Guardar canciones encontradas
-        if all_songs:
-            # Guardar en BD con estado "pendiente"
-            for song in all_songs:
-                song['estado'] = 'pendiente'
-                song['fuente'] = 'importacion_pdf'
-            
-            save_results = self.file_processor.save_songs_to_database(all_songs)
-            
-            # Mostrar resultados
-            if save_results['saved_songs'] > 0:
-                self.progress_var.set(100)
-                self.update_progress_label(f"✅ {save_results['saved_songs']} canciones importadas")
-                
-                # Usar after para evitar bloqueos de la UI
-                self.parent.after(100, self._navigate_to_editor)
-            else:
-                self.update_progress_label("❌ Error guardando canciones")
-                messagebox.showerror("Error", "No se pudieron guardar las canciones en la base de datos")
-        else:
-            self.progress_var.set(100)
-            self.update_progress_label("ℹ️ No se encontraron canciones")
-            messagebox.showinfo("Procesamiento Completado", 
-                            "No se encontraron canciones en los archivos procesados")
-        
-        self.processing = False
-
-    def _navigate_to_editor(self):
-        """Navegar al editor de manera segura"""
         try:
-            self.app.show_editor()
+            total_files = len(self.selected_files)
+            
+            # Configurar opciones de procesamiento
+            options = {
+                'use_pdfplumber': True,
+                'auto_detect_structure': self.auto_detect.get(),
+                'extract_chords': self.auto_chords.get()
+            }
+            
+            # Procesar cada archivo individualmente
+            all_songs = []
+            
+            for i, file_info in enumerate(self.selected_files):
+                file_path = file_info['path']
+                
+                # Actualizar progreso
+                progress = (i / total_files) * 100
+                self.progress_var.set(progress)
+                self.update_progress_label(f"Procesando: {os.path.basename(file_path)} ({i+1}/{total_files})")
+                
+                # Procesar archivo individual
+                file_result = self.file_processor._process_single_file(file_path, options)
+                
+                if file_result['success']:
+                    songs_found = file_result.get('songs_found', [])
+                    if songs_found:
+                        all_songs.extend(songs_found)
+                        # Actualizar estado en treeview
+                        self.update_file_status(file_info['name'], '✅ Completado')
+                    else:
+                        # No se encontraron canciones en este archivo
+                        self.update_file_status(file_info['name'], 'ℹ️ Sin canciones')
+                else:
+                    self.update_file_status(file_info['name'], '❌ Error')
+                    print(f"Error procesando {file_info['name']}: {file_result.get('error')}")
+                
+                # Pequeña pausa para que la UI se aktualice
+                self.parent.update()
+            
+            # Guardar canciones encontradas
+            if all_songs:
+                # Preparar canciones
+                for song in all_songs:
+                    song['estado'] = 'pendiente'
+                    song['fuente'] = 'importacion_pdf'
+                
+                # Guardar en BD y almacenar localmente
+                save_results = self.file_processor.save_songs_to_database(all_songs)
+                self.imported_songs = all_songs  # Guardar referencia local
+                
+                # Actualizar progreso
+                self.progress_var.set(100)
+                self.update_progress_label(f"✅ {len(all_songs)} canciones encontradas")
+                
+                if messagebox.askyesno("Procesamiento Completado", 
+                                    f"Se encontraron {len(all_songs)} canciones. ¿Quieres revisarlas en el editor ahora?"):
+                    # Primero mostrar el editor
+                    self.app.show_editor()
+                    # Luego intentar navegar con un pequeño delay
+                    self.parent.after(100, lambda: self._navigate_to_editor(0))
+            else:
+                # Indicar que no se encontraron canciones para procesar
+                self.progress_var.set(100)
+                self.update_progress_label("ℹ️ No se encontraron canciones para procesar")
+                messagebox.showinfo("Procesamiento Completado", "No se encontraron canciones para procesar")
+            
+            self.processing = False
         except Exception as e:
-            print(f"Error navegando al editor: {e}")
+            self.processing = False
+            messagebox.showerror("Error", f"Ocurrió un error durante el procesamiento: {e}")
+            print(f"Error en process_files_direct: {e}")
+
+    def _navigate_to_editor(self, retry_count=0):
+        """Navegar al editor con las canciones importadas de forma segura"""
+        MAX_RETRIES = 3  # Límite de reintentos
+        try:
+            if hasattr(self.app, 'editor') and self.app.editor:
+                # Recargar categorías primero
+                self.app.editor.load_categories()
+                # Luego cargar las canciones importadas
+                self.app.editor.load_imported_songs(self.imported_songs)
+                print("✅ Navegación al editor completada")
+            else:
+                if retry_count < MAX_RETRIES:
+                    print(f"⚠️ Editor no disponible, reintento {retry_count + 1}/{MAX_RETRIES}")
+                    self.parent.after(500, lambda: self._navigate_to_editor(retry_count + 1))
+                else:
+                    print("❌ No se pudo acceder al editor después de varios intentos")
+                    messagebox.showerror("Error", 
+                        "No se pudo abrir el editor después de varios intentos.\n"
+                        "Las canciones fueron guardadas y podrás acceder a ellas más tarde.")
+        except Exception as e:
+            print(f"❌ Error navegando al editor: {e}")
             messagebox.showerror("Error", f"No se pudo abrir el editor: {e}")
         
     def update_file_status(self, file_name, status):
@@ -638,9 +668,12 @@ class ImportModule:
             
         # Simular exportación
         messagebox.showinfo("Exportar", "Funcionalidad de exportación en desarrollo")
+
+
+
+        """Cancelar importación y volver al dashboard"""    
     
     def cancel_import(self):
-        """Cancelar importación y volver al dashboard"""
         if self.processing:
             if messagebox.askyesno("Confirmar", "¿Estás seguro de cancelar el procesamiento?"):
                 self.processing = False

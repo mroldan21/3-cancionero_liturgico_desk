@@ -29,6 +29,14 @@ except ImportError:
     OCR_SUPPORT = False
     print("⚠️  pytesseract/PIL no instalados. Instala con: pip install pytesseract pillow")
 
+# Try to import python-docx for Word support
+try:
+    from docx import Document as DocxDocument
+    DOCX_SUPPORT = True
+except ImportError:
+    DOCX_SUPPORT = False
+    print("⚠️  python-docx no instalado. Instala con: pip install python-docx")
+
 class FileProcessor:
     def __init__(self, db_manager):
         self.db_manager = db_manager
@@ -140,11 +148,12 @@ class FileProcessor:
                 print (f"2.1 Extrayendo texto de {total_pages} páginas...")
                 self._update_progress(f"Extrayendo texto de {total_pages} páginas...", 40)
                 
-                # Extraer TODO el texto como una sola canción
+                # Extraer TODO el texto como una sola canción, preservando espacios
                 full_text = ""
                 for page_num, page in enumerate(pdf.pages):
-                    text = page.extract_text() or ""
-                    full_text += text + "\n"
+                    # Reconstruir texto preservando espacios aplicando gaps entre caracteres
+                    page_text = self._reconstruct_text_from_page(page)
+                    full_text += page_text + "\n"
                     
                     progress = 40 + (page_num / total_pages) * 40
                     self._update_progress(f"Página {page_num + 1}/{total_pages}", progress)
@@ -167,6 +176,87 @@ class FileProcessor:
             'extracted_text': full_text,
             'processed_with': 'pdfplumber'
         }
+
+    def _reconstruct_text_from_page(self, page) -> str:
+        """
+        Reconstruir texto de una página usando page.chars para preservar
+        espacios proporcionales. Agrupa caracteres por línea (y0) y calcula
+        gaps entre caracteres para insertar espacios.
+        """
+        try:
+            chars = page.chars
+            if not chars:
+                return page.extract_text() or ""
+
+            # Agrupar por línea aproximando y0 (usar redondeo)
+            lines_map = {}
+            for ch in chars:
+                # redondear y0 a 1 decimal para agrupar caracteres en la misma línea
+                y_key = round(float(ch.get('top', ch.get('y0', 0))), 1)
+                lines_map.setdefault(y_key, []).append(ch)
+
+            # Ordenar líneas por coordenada vertical (de arriba hacia abajo)
+            sorted_lines = [lines_map[k] for k in sorted(lines_map.keys(), reverse=False)]
+            page_lines = []
+
+            for line_chars in sorted_lines:
+                # Ordenar caracteres por x0 (izquierda a derecha)
+                line_chars_sorted = sorted(line_chars, key=lambda c: float(c.get('x0', 0)))
+                # Calcular ancho medio de carácter para referencia (mediana robusta)
+                widths = [float(c.get('x1', 0)) - float(c.get('x0', 0)) for c in line_chars_sorted if float(c.get('x1', 0)) - float(c.get('x0', 0)) > 0]
+                if widths:
+                    widths_sorted = sorted(widths)
+                    m = len(widths_sorted) // 2
+                    if len(widths_sorted) % 2 == 1:
+                        avg_w = widths_sorted[m]
+                    else:
+                        avg_w = (widths_sorted[m - 1] + widths_sorted[m]) / 2.0
+                    # evitar valores extremos
+                    avg_w = max(2.0, min(avg_w, 40.0))
+                else:
+                    avg_w = 5.0
+
+                # Construir la línea insertando espacios proporcionalmente al gap
+                line_builder = ""
+                prev_x1 = None
+                for ch in line_chars_sorted:
+                    x0 = float(ch.get('x0', 0))
+                    x1 = float(ch.get('x1', 0))
+                    txt = ch.get('text', '')
+
+                    if prev_x1 is None:
+                        # primer carácter, añadir texto directamente (respetando su texto, puede ser espacio)
+                        line_builder += txt
+                    else:
+                        gap = x0 - prev_x1
+                        # Si el propio carácter es un espacio real, respetarlo
+                        if txt.isspace():
+                            line_builder += txt
+                        else:
+                            # Umbrales más conservadores para reducir espacios (ajustados por tipografía)
+                            # gap <= 0.12*avg_w -> sin espacio
+                            # 0.12*avg_w < gap <= 0.35*avg_w -> 1 non-breaking space
+                            # gap > 0.35*avg_w -> múltiplos reducidos de non-breaking spaces
+                            if gap <= 0.12 * avg_w:
+                                line_builder += txt
+                            elif gap <= 0.35 * avg_w:
+                                line_builder += "\u00A0" + txt
+                            else:
+                                # reducir la cantidad de espacios usando divisor mayor (1.8*avg_w)
+                                spaces = max(1, int(gap / (1.8 * avg_w)))
+                                line_builder += ("\u00A0" * spaces) + txt
+
+                    prev_x1 = x1
+
+                # Append the reconstructed line (preserve trailing spaces if any)
+                page_lines.append(line_builder.rstrip("\n"))
+
+            # Unir líneas con salto de línea
+            return "\n".join(page_lines)
+        except Exception as e:
+            self.logger.error(f"Error reconstruyendo página: {e}")
+            # Fallback al extract_text convencional
+            return page.extract_text() or ""
 
     def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
         """Crear una sola canción desde el texto completo del PDF"""
@@ -605,7 +695,8 @@ class FileProcessor:
             self._update_progress(f"Procesando archivo {i+1}/{len(file_paths)}", 
                                 (i / len(file_paths)) * 100)
             
-            file_result = self.process_pdf_file(file_path, options)
+            # Procesar según tipo de archivo (pdf, docx, txt...)
+            file_result = self._process_single_file(file_path, options)
             results['file_results'].append(file_result)
             results['processed_files'] += 1
             
@@ -620,15 +711,32 @@ class FileProcessor:
     def _process_single_file(self, file_path: str, options: Dict) -> Dict:
         """Procesar un solo archivo según su tipo"""
         file_ext = os.path.splitext(file_path)[1].lower()
-        
         if file_ext == '.pdf':
             return self.process_pdf_file(file_path, options)
+        elif file_ext in ('.docx', '.doc') and DOCX_SUPPORT:
+            return self._process_docx_file(file_path, options)
+        elif file_ext == '.txt':
+            # Simple text file: read and create song
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                song = self._create_single_song_from_text(text, file_path)
+                return {
+                    'success': True,
+                    'file_type': 'txt',
+                    'total_pages': 1,
+                    'songs_found': [song] if song else [],
+                    'extracted_text': text,
+                    'processed_with': 'txt'
+                }
+            except Exception as e:
+                return {'success': False, 'error': str(e)}
         else:
             return {
                 'success': False,
-                'error': f'Tipo de archivo no soportado: {file_ext}'
+                'error': f'Tipo de archivo no soportado o dependencia faltante: {file_ext}'
             }
-            
+    
     def save_songs_to_database(self, songs: List[Dict]) -> Dict:
         """
         Guardar canciones procesadas en la base de datos
@@ -739,3 +847,24 @@ class FileProcessor:
         # 4. Si no se encuentra un título, retorna el valor por defecto
         print ("Titulo retornado: ", default_title)
         return default_title
+
+    def _process_docx_file(self, file_path: str, options: Dict) -> Dict:
+        """Procesar archivo Word (.docx) extrayendo párrafos como texto"""
+        try:
+            self._update_progress("Extrayendo texto desde Word...", 10)
+            doc = DocxDocument(file_path)
+            paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
+            full_text = "\n".join(paragraphs)
+            # Crear una "canción" única con el contenido
+            song = self._create_single_song_from_text(full_text, file_path)
+            return {
+                'success': True,
+                'file_type': 'docx',
+                'total_pages': 1,
+                'songs_found': [song] if song else [],
+                'extracted_text': full_text,
+                'processed_with': 'docx'
+            }
+        except Exception as e:
+            self.logger.error(f"Error procesando DOCX {file_path}: {e}")
+            return {'success': False, 'error': f'Error docx: {str(e)}'}

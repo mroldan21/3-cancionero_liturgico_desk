@@ -12,6 +12,10 @@ class Editor:
         self.current_song_index = -1
         self.chord_pattern = re.compile(r'\[([A-G][#b]?[0-9]*(?:m|maj|min|dim|aug)?[0-9]*(?:\/[A-G][#b]?)?)\]')
         self.loading_song = False
+        self.categories = []  # Add categories list
+        # Nuevo: controles numéricos para tempo y capo
+        self.tempo_var = tk.IntVar(value=0)
+        self.capo_var = tk.IntVar(value=0)
 
         # Inicializar UI de manera segura
         try:
@@ -22,6 +26,8 @@ class Editor:
             print(f"Error inicializando editor: {e}")
             # Mostrar interfaz básica de error
             self.setup_basic_ui()
+
+        self.load_categories()  # Load categories after init
 
     def setup_basic_ui(self):
         """Configurar UI básica en caso de error"""
@@ -53,34 +59,73 @@ class Editor:
             print(f"Error recargando editor: {e}")
 
     def load_pending_songs(self):
-        """Cargar canciones pendientes de revisión desde la BD"""
+        """Cargar todas las canciones pendientes de revisión desde la BD"""
         try:
             print("🔄 Cargando canciones pendientes desde BD...")
             
-            # Obtener canciones con estado "pendiente"
+            # Obtener todas las canciones con estado "pendiente"
             filters = {'estado': 'pendiente'}
             canciones = self.app.database.get_canciones(filters)
             
             print(f"📝 Se encontraron {len(canciones)} canciones pendientes")
             
-            self.songs_pending_review = canciones
-            self.current_song_index = 0 if canciones else -1
-            
-            self.update_songs_list()
-            self.update_song_counter()
-            
-            # Cargar primera canción si existe
-            if self.songs_pending_review:
-                print(f"🎵 Cargando canción índice {self.current_song_index}")
-                self.load_song(0)
-            else:
-                print("ℹ️ No hay canciones pendientes para revisar")
-                self.clear_editor()
+            self._load_songs_into_editor(canciones)
                 
         except Exception as e:
             print(f"❌ Error cargando canciones pendientes: {e}")
             messagebox.showerror("Error", f"Error cargando canciones: {e}")
-        
+
+    def load_from_import(self):
+        """Cargar específicamente las últimas canciones importadas"""
+        try:
+            print("🔄 Cargando canciones desde importación...")
+            
+            # Obtener solo las canciones recién importadas que no han sido revisadas
+            filters = {
+                'estado': 'pendiente', 
+                'fuente': 'importacion_pdf',
+                'fecha_creacion': datetime.now().strftime('%Y-%m-%d')  # Solo de hoy
+            }
+            
+            canciones = self.app.database.get_canciones(filters)
+            
+            if canciones:
+                print(f"📝 Se encontraron {len(canciones)} canciones importadas")
+                # Reemplazar lista actual con las canciones importadas
+                self.songs_pending_review = canciones
+                self.current_song_index = 0
+                self.update_songs_list()
+                self.load_song(0)
+            else:
+                print("ℹ️ No hay canciones pendientes de importación")
+                messagebox.showinfo("Importación", "No hay canciones pendientes de importación")
+                
+        except Exception as e:
+            print(f"❌ Error cargando canciones importadas: {e}")
+            messagebox.showerror("Error", f"Error cargando canciones importadas: {e}")
+
+    def _load_songs_into_editor(self, songs, from_import=False):
+        """Método común para cargar canciones en el editor"""
+        if songs:
+            self.songs_pending_review = songs
+            self.current_song_index = 0
+            
+            self.update_songs_list()
+            self.update_song_counter()
+            
+            if from_import:
+                # Si viene de importación, cargar la primera canción
+                print(f"🎵 Cargando primera canción importada")
+                self.load_song(0)
+            else:
+                # Si es carga general, verificar si hay canciones
+                if self.songs_pending_review:
+                    print(f"🎵 Cargando canción índice {self.current_song_index}")
+                    self.load_song(0)
+                else:
+                    print("ℹ️ No hay canciones pendientes para revisar")
+                    self.clear_editor()
+
     def setup_ui(self):
         """Configurar interfaz del editor mejorado"""
         print("🔄 Iniciando setup_ui del editor...")
@@ -248,7 +293,7 @@ class Editor:
         # Tono
         ttk.Label(meta_frame, text="Tono:", style="Normal.TLabel").grid(row=1, column=0, sticky="w", pady=2)
         self.key_combo = ttk.Combobox(meta_frame,
-                                    values=["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
+                                    values=["C", "Cm", "D", "Dm", "E", "Em", "F", "Fm", "G", "Gm", "A", "Am", "B", "Bm"],
                                     width=8)
         self.key_combo.set("C")
         self.key_combo.grid(row=1, column=1, sticky="w", pady=2, padx=(10, 20))
@@ -256,10 +301,25 @@ class Editor:
         # Categoría
         ttk.Label(meta_frame, text="Categoría:", style="Normal.TLabel").grid(row=1, column=2, sticky="w", pady=2)
         self.category_combo = ttk.Combobox(meta_frame, 
-                                         values=["Alabanza", "Adoración", "Cuaresma", "Navidad", "Comunión", "General"],
+                                         values=self.categories or ["General"],
                                          width=12)
         self.category_combo.grid(row=1, column=3, sticky="w", pady=2, padx=(10, 0))
         
+        # Set default value
+        if self.categories:
+            self.category_combo.set(self.categories[0])
+        else:
+            self.category_combo.set("General")
+
+        # Tempo (BPM) y Posición de Capo (int) - nuevos controles
+        ttk.Label(meta_frame, text="Tempo (BPM):", style="Normal.TLabel").grid(row=2, column=0, sticky="w", pady=2)
+        self.tempo_spin = tk.Spinbox(meta_frame, from_=40, to=300, textvariable=self.tempo_var, width=8)
+        self.tempo_spin.grid(row=2, column=1, sticky="w", pady=2, padx=(10, 20))
+
+        ttk.Label(meta_frame, text="Capo:", style="Normal.TLabel").grid(row=2, column=2, sticky="w", pady=2)
+        self.capo_spin = tk.Spinbox(meta_frame, from_=0, to=12, textvariable=self.capo_var, width=8)
+        self.capo_spin.grid(row=2, column=3, sticky="w", pady=2, padx=(10, 0))
+
         meta_frame.columnconfigure(1, weight=1)
         meta_frame.columnconfigure(3, weight=1)
         
@@ -413,11 +473,12 @@ class Editor:
         
     def load_song(self, index):
         """Cargar canción en el editor"""
-        if self.loading_song:  # ← EVITAR RECURSIÓN
+        if hasattr(self, 'loading_song') and self.loading_song:
+            print("⏸️  load_song ya en ejecución, ignorando...")
             return
             
         print(f"🔄 Cargando canción en índice {index}")
-        self.loading_song = True  # ← BLOQUEAR RECURSIÓN
+        self.loading_song = True
         
         try:
             if 0 <= index < len(self.songs_pending_review):
@@ -426,18 +487,34 @@ class Editor:
                 
                 print(f"🎵 Canción cargada: {self.current_song.get('titulo', 'Sin título')}")
                 
-                # Actualizar interfaz
+                # Actualizar interfaz mapeando campos
                 self.title_entry.delete(0, tk.END)
                 self.title_entry.insert(0, self.current_song.get('titulo', ''))
                 
                 self.artist_entry.delete(0, tk.END)
-                self.artist_entry.insert(0, self.current_song.get('artista', ''))
+                self.artist_entry.insert(0, self.current_song.get('autor', ''))  # Changed from 'artista'
                 
-                self.key_combo.set(self.current_song.get('tono_original', 'C'))
-                self.category_combo.set(self.current_song.get('categoria', 'General'))
+                self.key_combo.set(self.current_song.get('tonalidad_original', 'C'))  # Changed from 'tono_original'
+                
+                # Update category if song has one, otherwise use first available
+                song_category = self.current_song.get('categoria')
+                if song_category and song_category in self.categories:
+                    self.category_combo.set(song_category)
+                elif self.categories:
+                    self.category_combo.set(self.categories[0])
+                
+                # Rellenar tempo y capo desde la canción (si existen)
+                try:
+                    self.tempo_var.set(int(self.current_song.get('tempo_bpm', 0) or 0))
+                except Exception:
+                    self.tempo_var.set(0)
+                try:
+                    self.capo_var.set(int(self.current_song.get('posicion_capo', 0) or 0))
+                except Exception:
+                    self.capo_var.set(0)
                 
                 self.text_editor.delete(1.0, tk.END)
-                self.text_editor.insert(1.0, self.current_song.get('letra', ''))
+                self.text_editor.insert(1.0, self.current_song.get('letra_con_acordes', ''))  # Changed from 'letra'
                 
                 self.highlight_syntax()
                 self.update_chords_list()
@@ -446,30 +523,38 @@ class Editor:
                 # Seleccionar en la lista (sin disparar eventos)
                 items = self.songs_tree.get_children()
                 if items and index < len(items):
-                    # Desvincular temporalmente el evento para evitar bucle
+                    # Desvincular temporalmente el evento
                     self.songs_tree.unbind('<<TreeviewSelect>>')
                     self.songs_tree.selection_set(items[index])
                     self.songs_tree.focus(items[index])
-                    # Volver a vincular el evento
-                    self.songs_tree.bind('<<TreeviewSelect>>', self.on_song_select)
+                    # Re-vincular después de un delay
+                    self.parent.after(100, self._rebind_treeview)
                     
                 print("✅ Canción cargada exitosamente en el editor")
             else:
                 print(f"❌ Índice {index} fuera de rango. Total canciones: {len(self.songs_pending_review)}")
                 
+        except Exception as e:
+            print(f"❌ Error en load_song: {e}")
         finally:
-            self.loading_song = False  # ← DESBLOQUEAR
+            self.loading_song = False
+
+    def _rebind_treeview(self):
+        """Re-vincular evento del treeview después de cargar canción"""
+        self.songs_tree.bind('<<TreeviewSelect>>', self.on_song_select)
+        print("🔗 Treeview re-vinculado")
 
     def on_song_select(self, event):
         """Cuando se selecciona una canción en la lista"""
-        if self.loading_song:  # ← EVITAR RECURSIÓN DURANTE CARGA
+        if hasattr(self, 'loading_song') and self.loading_song:
+            print("⏸️  Ignorando selección durante carga...")
             return
             
         selection = self.songs_tree.selection()
         if selection:
             index = self.songs_tree.index(selection[0])
             print(f"🎯 Usuario seleccionó canción en índice {index}")
-            self.load_song(index)   
+            self.load_song(index)
 
     def on_song_select(self, event):
         """Cuando se selecciona una canción en la lista"""
@@ -488,11 +573,38 @@ class Editor:
         if self.current_song_index < len(self.songs_pending_review) - 1:
             self.load_song(self.current_song_index + 1)
             
-    def load_from_import(self):
+    def load_imported_songs(self, songs):
         """Cargar canciones desde el módulo de importación"""
-        # Esto se conectará con el módulo de importación
-        messagebox.showinfo("Importar", "Esta función cargará canciones recién importadas")
-        
+        if songs:
+            self.songs_pending_review = songs
+            self.update_songs_list()
+            self.load_song(0)  # Cargar la primera canción
+            self.update_song_counter()
+            print(f"📥 Cargadas {len(songs)} canciones importadas")
+        else:
+            print("❌ No hay canciones para cargar")
+            
+    def load_categories(self):
+        """Cargar categorías desde la BD"""
+        try:
+            print("📂 Cargando categorías...")
+            categories = self.app.database.get_categorias()
+            if categories:
+                self.categories = [cat.get('nombre', '') for cat in categories if cat.get('nombre')]
+                print(f"✅ Categorías cargadas: {self.categories}")
+                
+                # Actualizar combobox si existe
+                if hasattr(self, 'category_combo'):
+                    self.category_combo['values'] = self.categories
+                    if self.categories:
+                        self.category_combo.set(self.categories[0])
+            else:
+                print("⚠️ No se encontraron categorías")
+                self.categories = ["General"]
+        except Exception as e:
+            print(f"❌ Error cargando categorías: {e}")
+            self.categories = ["General"]
+
     # Métodos de edición (mantener los existentes)
     def insert_chord(self):
         """Insertar marcador de acorde"""
@@ -618,18 +730,37 @@ class Editor:
             return
             
         try:
-            # Actualizar datos de la canción
-            self.current_song['titulo'] = self.title_entry.get().strip()
-            self.current_song['artista'] = self.artist_entry.get().strip()
-            self.current_song['letra'] = self.text_editor.get(1.0, tk.END).strip()
-            self.current_song['tono_original'] = self.key_combo.get()
-            self.current_song['estado'] = 'pendiente'
+            # Debug: Mostrar datos originales
+            print("\n🔍 DEBUG - Guardando borrador:")
+            print(f"ID: {self.current_song.get('id')}")
+            print(f"Estado actual: {self.current_song.get('estado')}")
             
+            # Actualizar datos con mapeo correcto
+            update_data = {
+                'id': str(self.current_song.get('id')),
+                'titulo': self.title_entry.get().strip(),
+                'autor': self.artist_entry.get().strip(),
+                'letra_con_acordes': self.text_editor.get(1.0, tk.END).strip(),
+                'tonalidad_original': self.key_combo.get(),
+                'activo': 1 if self.current_song.get('estado') == 'activo' else 0,
+                'tempo_bpm': int(self.tempo_var.get() or 0),
+                'posicion_capo': int(self.capo_var.get() or 0),
+                'version': self.current_song.get('version', 1)
+            }
+            
+            print("\n📤 DEBUG - Datos a enviar:")
+            for key, value in update_data.items():
+                print(f"{key}: {value}")
+                
             # Guardar en BD
             result = self.app.database.update_cancion(
-                self.current_song['id'], 
-                self.current_song
+                update_data['id'], 
+                update_data
             )
+            
+            print("\n📥 DEBUG - Respuesta del servidor:")
+            print(f"Success: {result.get('success')}")
+            print(f"Error: {result.get('error')}")
             
             if result.get('success'):
                 messagebox.showinfo("Éxito", "Canción guardada como borrador")
@@ -637,8 +768,11 @@ class Editor:
                 messagebox.showerror("Error", "Error al guardar la canción")
                 
         except Exception as e:
+            print(f"\n❌ DEBUG - Error en save_draft:")
+            print(f"Tipo de error: {type(e)}")
+            print(f"Detalles del error: {str(e)}")
             messagebox.showerror("Error", f"Error guardando borrador: {e}")
-            
+
     def approve_and_publish(self):
         """Aprobar y publicar canción"""
         if not self.current_song:
@@ -655,19 +789,44 @@ class Editor:
                 return
         
         try:
-            # Actualizar datos
-            self.current_song['titulo'] = self.title_entry.get().strip()
-            self.current_song['artista'] = self.artist_entry.get().strip()
-            self.current_song['letra'] = self.text_editor.get(1.0, tk.END).strip()
-            self.current_song['tono_original'] = self.key_combo.get()
-            self.current_song['estado'] = 'activo'  # Cambiar estado a activo
+            # Debug: Mostrar datos originales
+            print("\n🔍 DEBUG - Datos originales de la canción:")
+            print(f"ID: {self.current_song.get('id')}")
+            print(f"Estado actual: {self.current_song.get('estado')}")
+            print(f"Versión actual: {self.current_song.get('version')}")
+
+            # Debug: Mostrar datos a actualizar
+            update_data = {
+                'id': str(self.current_song.get('id')),
+                'titulo': self.title_entry.get().strip(),
+                'autor': self.artist_entry.get().strip(),
+                'letra_con_acordes': self.text_editor.get(1.0, tk.END).strip(),
+                'tonalidad_original': self.key_combo.get(),
+                'activo': 1,
+                'tempo_bpm': int(self.tempo_var.get() or 0),
+                'posicion_capo': int(self.capo_var.get() or 0),
+                'version': int(self.current_song.get('version', 1)) + 1
+            }
+            
+            print("\n📤 DEBUG - Datos a enviar al servidor:")
+            for key, value in update_data.items():
+                print(f"{key}: {value}")
+
+            # Debug: Mostrar llamada a API
+            print(f"\n🌐 DEBUG - Llamando a update_cancion con ID: {update_data['id']}")
             
             # Guardar en BD
             result = self.app.database.update_cancion(
-                self.current_song['id'], 
-                self.current_song
+                update_data['id'], 
+                update_data
             )
             
+            # Debug: Mostrar respuesta del servidor
+            print(f"\n📥 DEBUG - Respuesta del servidor:")
+            print(f"Success: {result.get('success')}")
+            print(f"Error: {result.get('error')}")
+            print(f"Datos devueltos: {result}")
+
             if result.get('success'):
                 messagebox.showinfo("Éxito", "Canción aprobada y publicada")
                 # Remover de la lista de pendientes y recargar
@@ -677,6 +836,9 @@ class Editor:
                 messagebox.showerror("Error", "Error al publicar la canción")
                 
         except Exception as e:
+            print(f"\n❌ DEBUG - Error en approve_and_publish: {e}")
+            print(f"Tipo de error: {type(e)}")
+            print(f"Detalles del error: {str(e)}")
             messagebox.showerror("Error", f"Error publicando canción: {e}")
             
     def discard_song(self):
