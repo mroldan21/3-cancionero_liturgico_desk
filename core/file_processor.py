@@ -7,6 +7,8 @@ from datetime import datetime
 import re
 import json
 
+CHORD_TOKEN_RE = re.compile(r'[A-G](?:#|b|♯|♭)?(?:m|maj|min|sus|dim|aug|add)?\d*(?:/[A-G](?:#|b)?)?', re.IGNORECASE)
+
 # Try to import PDF processing libraries
 try:
     import PyPDF2
@@ -93,47 +95,131 @@ class FileProcessor:
                 'success': False,
                 'error': f'Error procesando PDF: {str(e)}'
             }
-        
+    
+    """ 
+    BLOQUE DE FUNCIONES DE ALINEACION POR ESPACIOS SUPERPUESTOS EN CARACTERES 
+    """
+    def _normalize_tabs(self, s: str, tabsize: int = 4) -> str:
+        return s.replace("\t", " " * tabsize)
 
-    # def _process_with_pdfplumber(self, file_path: str, options: Dict) -> Dict:
-    #     """Procesar PDF como UNA sola canción por archivo"""
-    #     self._update_progress("Extrayendo texto completo del PDF...", 30)
-    #     print ("2. Extrayendo texto completo del PDF...")
-        
-    #     try:
-    #         with pdfplumber.open(file_path) as pdf:
-    #             total_pages = len(pdf.pages)
-    #             print (f"2.1 Extrayendo texto de {total_pages} páginas...")
-    #             self._update_progress(f"Extrayendo texto de {total_pages} páginas...", 40)
-                
-    #             # Extraer TODO el texto como una sola canción, preservando espacios
-    #             full_text = ""
-    #             for page_num, page in enumerate(pdf.pages):
-    #                 # Reconstruir texto preservando espacios aplicando gaps entre caracteres
-    #                 page_text = self._reconstruct_text_from_page(page)
-    #                 full_text += page_text + "\n"
-                    
-    #                 progress = 40 + (page_num / total_pages) * 40
-    #                 self._update_progress(f"Página {page_num + 1}/{total_pages}", progress)
-    #                 print (f"2.2 Página {page_num + 1}/{total_pages}")
-                
-    #             # Crear UNA sola canción con todo el contenido
-    #             song = self._create_single_song_from_text(full_text, file_path)
-    #             print ("2.3 Creado contenido de la canción: ", song)
-    #             songs_found = [song] if song else []
-                
-    #     except Exception as e:
-    #         self.logger.error(f"Error con pdfplumber: {e}")
-    #         return {'success': False, 'error': f'Error pdfplumber: {str(e)}'}
-            
-    #     return {
-    #         'success': True,
-    #         'file_type': 'pdf',
-    #         'total_pages': total_pages,
-    #         'songs_found': songs_found,  # Solo UNA canción
-    #         'extracted_text': full_text,
-    #         'processed_with': 'pdfplumber'
-    #     }
+    def _find_chord_tokens_in_line(self, chord_line: str):
+        tokens = []
+        i = 0
+        n = len(chord_line)
+        while i < n:
+            if chord_line[i].isspace():
+                i += 1
+                continue
+            j = i
+            while j < n and not chord_line[j].isspace():
+                j += 1
+            token = chord_line[i:j]
+            tokens.append({"text": token, "start": i, "end": j})
+            i = j
+        return tokens
+
+    def _looks_like_chord(self, token: str) -> bool:
+        if CHORD_TOKEN_RE.fullmatch(token):
+            return True
+        lower = token.lower()
+        keywords = ["maj", "min", "sus", "dim", "aug", "add", "/"]
+        if any(ch in token for ch in ['#', 'b', '/', 'º', '♯', '♭']):
+            return True
+        if len(token) <= 5 and re.match(r'^[A-G]', token, re.IGNORECASE):
+            return True
+        if any(k in lower for k in keywords):
+            return True
+        return False
+
+    def _pad_to_same_length(self, a: str, b: str):
+        la, lb = len(a), len(b)
+        if la < lb:
+            a = a + " " * (lb - la)
+        elif lb < la:
+            b = b + " " * (la - lb)
+        return a, b
+
+    def _map_token_to_lyric_index(self, token_start: int, token_end: int, lyric_line: str) -> int:
+        # usamos el centro del token para mapear a índice de carácter en la lína de letra
+        center_col = (token_start + token_end - 1) / 2.0
+        if center_col < 0:
+            return 0
+        if center_col >= len(lyric_line):
+            return len(lyric_line) - 1 if len(lyric_line) > 0 else 0
+        return int(round(center_col))
+
+    def parse_aligned_pair(self, chord_line: str, lyric_line: str,
+                        anchor_fraction_default: float = 0.5,
+                        tabsize: int = 4) -> Dict:
+        """
+        Devuelve dict: {"text": lyric_line, "chords": [ {chord, char_index, anchor_fraction, col_start, col_end}, ... ] }
+        """
+        chord_line = self._normalize_tabs(chord_line, tabsize)
+        lyric_line = self._normalize_tabs(lyric_line, tabsize)
+        chord_line, lyric_line = self._pad_to_same_length(chord_line, lyric_line)
+        tokens = self._find_chord_tokens_in_line(chord_line)
+        chords = []
+        for t in tokens:
+            token_text = t['text']
+            if not self._looks_like_chord(token_text):
+                continue
+            start, end = t['start'], t['end']
+            char_index = self._map_token_to_lyric_index(start, end, lyric_line)
+            chords.append({
+                "chord": token_text.strip(),
+                "char_index": char_index,
+                "anchor_fraction": anchor_fraction_default,
+                "col_start": start,
+                "col_end": end
+            })
+        return {"text": lyric_line.rstrip(), "chords": chords}
+
+    def _extract_chord_lyric_pairs(self, lines: List[str]) -> List[Dict]:
+        """
+        Recorre las líneas detectando pares (línea de acordes seguida de línea de letra).
+        Estrategia simple y robusta:
+        - Si una línea es detectada como línea de acordes (_is_chord_line), se intenta emparejar con la siguiente línea no-vacía.
+        - Si no hay una línea de acordes consecutiva, se omite.
+        Devuelve lista de dicts parseados (parse_aligned_pair output) y también líneas sueltas sin acordes si no hay par.
+        """
+        pairs = []
+        i = 0
+        n = len(lines)
+        while i < n:
+            line = lines[i].rstrip("\n")
+            if not line.strip():
+                i += 1
+                continue
+            # usa tu función _is_chord_line si existe, si no, heurística propia:
+            is_chord = False
+            if hasattr(self, "_is_chord_line") and callable(getattr(self, "_is_chord_line")):
+                is_chord = self._is_chord_line(line)
+            else:
+                # heurística fallback: muchas tokens cortas y mayúsculas o presencia de #/b
+                tokens = [tok for tok in re.split(r'\s+', line) if tok]
+                short_tokens = sum(1 for tok in tokens if len(tok) <= 5)
+                if short_tokens >= max(1, len(tokens)//2) or any(ch in line for ch in ['#', 'b', '♯', '♭', '/']):
+                    is_chord = True
+
+            if is_chord and i + 1 < n:
+                next_line = lines[i+1]
+                # empareja chord_line (line) con lyric_line (next_line)
+                parsed = parse_aligned_pair(self, line, next_line)
+                parsed['line_index'] = i+1  # índice de la línea de letra en el conjunto original
+                pairs.append(parsed)
+                i += 2
+                continue
+            else:
+                # No es línea de acordes, pero puede ser una línea de letra sola
+                # guardamos como línea sin acordes
+                pairs.append({"text": line.rstrip(), "chords": [], "line_index": i})
+                i += 1
+        return pairs
+    # ---- FIN: funciones para parseo alineado ----
+    """
+    FIN DEL ALINEADO POR ESPACIOS SUPERPUESTOS EN CARACTERES
+    """
+
 
     def _process_with_pdfplumber(self, file_path: str, options: Dict) -> Dict:
         """Procesar PDF preservando mejor la estructura espacial"""
@@ -400,32 +486,44 @@ class FileProcessor:
     #     }
 
     def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
-        """Crear una sola canción desde el texto completo del PDF - SIN procesar acordes"""
+        """Crear una sola canción desde el texto completo procesando pares acorde/lyrica (monospace-aligned)"""
         lines = text.split('\n')
-        
+
         # Usar el nombre del archivo como título por defecto
         file_name = os.path.splitext(os.path.basename(file_path))[0]
-        
-        # Buscar título real en las primeras líneas
+
+        # Buscar título real en las primeras líneas (mantén tu lógica actual)
         title = self._extract_title_from_text(lines, file_name)
-        
-        # NO procesar acordes automáticamente - tratarlos como texto normal
-        # En lugar de extraer acordes, simplemente usar texto completo
-        all_chords = []  # Lista vacía - no procesamos acordes
-        
-        # Detectar tonalidad básica (opcional, simplificado)
+
+        # Intentar extraer pares acorde/lyrica
+        parsed_lines = self._extract_chord_lyric_pairs(lines)
+
+        # Construir estructura de acordes a almacenar (puede ser JSON)
+        acordes_struct = []
+        for pl in parsed_lines:
+            # cada pl ya tiene keys: "text", "chords", "line_index"
+            acordes_struct.append({
+                "line_index": pl.get("line_index"),
+                "texto_linea": pl.get("text"),
+                "chords": pl.get("chords", [])
+            })
+
+        # Detectar tonalidad (opcional)
         probable_key = self._detect_tonality_from_text(text)
-        
+
+        # Guardar la letra "plana" (sin modificar) y los acordes estructurados
         return {
             'titulo': title,
             'artista': 'Desconocido',
-            'letra': text.strip(),  # Texto completo sin modificar acordes
+            'letra': text.strip(),
             'tono_original': probable_key,
-            'acordes': '',  # Vacío - no procesamos acordes automáticamente
+            # guardamos como JSON serializado; tu repositorio puede querer dict directo
+            'acordes': acordes_struct, # json.dumps(acordes_struct, ensure_ascii=False),
             'estado': 'pendiente',
             'categoria_id': 1,
-            'notas': f"Importado desde PDF: {os.path.basename(file_path)}"
+            'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
         }
+
 
     def _detect_tonality_from_text(self, text: str) -> str:
         """Detección simplificada de tonalidad (opcional)"""
@@ -801,6 +899,7 @@ class FileProcessor:
     def _process_single_file(self, file_path: str, options: Dict) -> Dict:
         """Procesar un solo archivo según su tipo"""
         file_ext = os.path.splitext(file_path)[1].lower()
+        
         if file_ext == '.pdf':
             return self.process_pdf_file(file_path, options)
         elif file_ext in ('.docx', '.doc') and DOCX_SUPPORT:
@@ -821,11 +920,38 @@ class FileProcessor:
                 }
             except Exception as e:
                 return {'success': False, 'error': str(e)}
+        
         else:
             return {
                 'success': False,
-                'error': f'Tipo de archivo no soportado o dependencia faltante: {file_ext}'
+                'error': f'Tipo de archivo no soportado: {file_ext}'
             }
+        
+    def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
+        """Crear una sola canción desde el texto completo, formateada para tipografía monoespaciada."""
+        lines = text.split('\n')
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
+
+        # Título según tu lógica actual
+        title = self._extract_title_from_text(lines, file_name)
+
+        # Reconstruir el texto con acordes alineados
+        formatted_song = self._reconstruct_fixedwidth_song(text)
+
+        # Detectar tonalidad
+        probable_key = self._detect_tonality_from_text(formatted_song)
+
+        return {
+            'titulo': title,
+            'artista': 'Desconocido',
+            'letra': formatted_song.strip(),  # texto ya listo para renderizado monospace
+            'tono_original': probable_key,
+            'acordes': '',  # los acordes ya están embebidos en la letra
+            'estado': 'pendiente',
+            'categoria_id': 1,
+            'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
+        }
+
     
     def save_songs_to_database(self, songs: List[Dict]) -> Dict:
         """
@@ -958,3 +1084,59 @@ class FileProcessor:
         except Exception as e:
             self.logger.error(f"Error procesando DOCX {file_path}: {e}")
             return {'success': False, 'error': f'Error docx: {str(e)}'}
+        
+    def _reconstruct_fixedwidth_song(self, text: str, tabsize: int = 4) -> str:
+        """
+        Reconstruye texto de canción con acordes alineados en fuente monoespaciada.
+        Detecta pares (línea de acordes, línea de letra) y los reensambla.
+        """
+
+        def normalize_tabs(s: str) -> str:
+            return s.replace('\t', ' ' * tabsize)
+
+        def is_chord_line(line: str) -> bool:
+            tokens = [t for t in line.strip().split() if t]
+            if not tokens:
+                return False
+            if any(ch in line for ch in ['#', 'b', '♯', '♭', '/']):
+                return True
+            if all(len(t) <= 4 and t[0].upper() in "ABCDEFG" for t in tokens):
+                return True
+            return False
+
+        lines = [normalize_tabs(l.rstrip()) for l in text.splitlines()]
+        output_lines = []
+        i = 0
+        n = len(lines)
+
+        while i < n:
+            line = lines[i]
+            if not line.strip():
+                output_lines.append("")  # línea vacía
+                i += 1
+                continue
+
+            # Si la línea es de acordes y hay una siguiente con letra
+            if is_chord_line(line) and i + 1 < n and not is_chord_line(lines[i + 1]):
+                chord_line = line
+                lyric_line = lines[i + 1]
+
+                # Igualar longitudes
+                max_len = max(len(chord_line), len(lyric_line))
+                chord_line = chord_line.ljust(max_len)
+                lyric_line = lyric_line.ljust(max_len)
+
+                # Compactar doble espacio si sobra
+                chord_line = re.sub(r'\s{2,}', '  ', chord_line)
+
+                # Agregar ambas líneas al resultado
+                output_lines.append(chord_line)
+                output_lines.append(lyric_line)
+                i += 2
+            else:
+                # Solo línea de texto (sin acordes encima)
+                output_lines.append(line)
+                i += 1
+
+        # Unir líneas resultantes con salto de línea
+        return "\n".join(output_lines)
