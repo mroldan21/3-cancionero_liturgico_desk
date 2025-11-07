@@ -8,6 +8,7 @@ import re
 import json
 
 CHORD_TOKEN_RE = re.compile(r'[A-G](?:#|b|♯|♭)?(?:m|maj|min|sus|dim|aug|add)?\d*(?:/[A-G](?:#|b)?)?', re.IGNORECASE)
+_CHORD_TOKEN_RE = re.compile(r'\S+')
 
 # Try to import PDF processing libraries
 try:
@@ -1123,16 +1124,26 @@ class FileProcessor:
 
                 # Igualar longitudes
                 max_len = max(len(chord_line), len(lyric_line))
-                chord_line = chord_line.ljust(max_len)
-                lyric_line = lyric_line.ljust(max_len)
+                #chord_line = chord_line.ljust(max_len)
+                #lyric_line = lyric_line.ljust(max_len)
 
                 # Compactar doble espacio si sobra
-                chord_line = re.sub(r'\s{2,}', '  ', chord_line)
+                #chord_line = re.sub(r'\s{2,}', '  ', chord_line)
 
                 # Agregar ambas líneas al resultado
-                output_lines.append(chord_line)
-                output_lines.append(lyric_line)
+                #output_lines.append(chord_line)
+                #output_lines.append(lyric_line)
+                #i += 2
+                chord_line_raw = line
+                lyric_line_raw = lines[i+1]
+
+                # normaliza tabs si hiciste afuera
+                chord_aligned, lyric_padded = self.align_chord_over_lyric(chord_line_raw, lyric_line_raw)
+
+                output_lines.append(chord_aligned)
+                output_lines.append(lyric_padded)
                 i += 2
+
             else:
                 # Solo línea de texto (sin acordes encima)
                 output_lines.append(line)
@@ -1140,3 +1151,97 @@ class FileProcessor:
 
         # Unir líneas resultantes con salto de línea
         return "\n".join(output_lines)
+
+    def align_chord_over_lyric(self, chord_line: str, lyric_line: str, tabsize: int = 4) -> (str, str):
+        """
+        Reposiciona los tokens de chord_line para que queden centrados sobre caracteres
+        no-espacio en lyric_line lo más cercano posible.
+        Retorna (chord_line_aligned, lyric_line_padded)
+        """
+        # normaliza tabs ya asumido antes
+        # aseguramos longitud suficiente
+        max_len = max(len(chord_line), len(lyric_line))
+        chord = chord_line.ljust(max_len)
+        lyric = lyric_line.ljust(max_len)
+
+        # construimos un arreglo de chars para la nueva línea de acordes
+        chord_out = list(" " * max_len)
+
+        # encontramos tokens (cualquier secuencia non-space en chord_line)
+        for m in _CHORD_TOKEN_RE.finditer(chord_line):
+            token = m.group(0)
+            start = m.start()
+            end = m.end()
+            # columna de referencia: centro del token
+            center = int(round((start + end - 1) / 2.0))
+
+            # buscar el índice de caracter de lyric más cercano no-espacio
+            # primero si el centro ya cae sobre un char visible -> usarlo
+            target = None
+            if center < len(lyric) and lyric[center] != " ":
+                target = center
+            else:
+                # buscar a la izquierda y derecha dentro del ancho del token y un margen
+                max_search = max(end - start, 6)  # al menos 6 cols de búsqueda
+                for d in range(1, max_search + 1):
+                    left = center - d
+                    right = center + d
+                    if left >= 0 and left < len(lyric) and lyric[left] != " ":
+                        target = left
+                        break
+                    if right >= 0 and right < len(lyric) and lyric[right] != " ":
+                        target = right
+                        break
+                # si no encuentra carácter visible, deja el centro (aunque sea espacio)
+                if target is None:
+                    target = min(center, len(lyric)-1)
+
+            # coloca el token centrado en target: calculamos left pos
+            # intentamos centrar token sobre target char
+            left_pos = target - (len(token) // 2)
+            # clamp left_pos a 0..max_len-len(token)
+            left_pos = max(0, min(left_pos, max_len - len(token)))
+
+            # si hay conflicto con tokens previos, desplazar a la derecha hasta que quepa
+            conflict_shift = 0
+            while True:
+                conflict = False
+                for j in range(len(token)):
+                    if chord_out[left_pos + j + conflict_shift] != " ":
+                        conflict = True
+                        break
+                if not conflict:
+                    break
+                conflict_shift += 1
+                if left_pos + conflict_shift + len(token) > max_len:
+                    # no cabe a la derecha; intentar desplazar a la izquierda desde original left_pos
+                    # (buscamos la primera posición libre hacia la izquierda)
+                    found_left = False
+                    for shift_left in range(1, len(token)+1):
+                        lp = left_pos - shift_left
+                        if lp < 0:
+                            break
+                        ok = True
+                        for j in range(len(token)):
+                            if chord_out[lp + j] != " ":
+                                ok = False
+                                break
+                        if ok:
+                            left_pos = lp
+                            conflict_shift = 0
+                            found_left = True
+                            break
+                    if not found_left:
+                        # no hay solución limpia: sobrescribir (última opción)
+                        break
+            left_pos += conflict_shift
+
+            # finalmente escribir token en chord_out
+            for j, ch in enumerate(token):
+                pos = left_pos + j
+                if 0 <= pos < max_len:
+                    chord_out[pos] = ch
+
+        chord_aligned = "".join(chord_out).rstrip()
+        lyric_padded = lyric.rstrip()
+        return chord_aligned, lyric_padded
