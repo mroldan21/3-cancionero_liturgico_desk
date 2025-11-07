@@ -8,7 +8,40 @@ import re
 import json
 
 CHORD_TOKEN_RE = re.compile(r'[A-G](?:#|b|♯|♭)?(?:m|maj|min|sus|dim|aug|add)?\d*(?:/[A-G](?:#|b)?)?', re.IGNORECASE)
-_CHORD_TOKEN_RE = re.compile(r'\S+')
+
+# Mapeo y raíces (ordenadas para match greedy: SOL antes que SI)
+_TRAD_TO_ANG = {
+    "DO": "C",
+    "RE": "D",
+    "MI": "E",
+    "FA": "F",
+    "SOL": "G",
+    "LA": "A",
+    "SI": "B"
+}
+
+# TRAD_TO_AMERICAN = {
+#         "DO": "C",
+#         "RE": "D",
+#         "MI": "E",
+#         "FA": "F",
+#         "SOL": "G",
+#         "LA": "A",
+#         "SI": "B",
+#         # versiones bemoles también
+#         "SIB": "Bb",
+#         "MIB": "Eb",
+#         "LAB": "Ab",
+#         "REb": "Db",
+#         "SOLb": "Gb",
+#         "DOb": "Cb",
+#     }
+
+# _TRAD_ROOTS = ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]
+
+# _ANGLO_CHORD_RE = re.compile(r'^[A-G](?:[#♯b♭]?)(?:m(?:aj|min)?|maj|min|sus|dim|aug|add|\d+)?(?:.*)?$', re.IGNORECASE)
+
+_CHORD_SIMPLE_RE = re.compile(r'^(?P<root_part>\S+)$')  # fallback simple token
 
 # Try to import PDF processing libraries
 try:
@@ -42,10 +75,21 @@ except ImportError:
     print("⚠️  python-docx no instalado. Instala con: pip install python-docx")
 
 class FileProcessor:
-    def __init__(self, db_manager):
+    def __init__(self, db_manager=None, *args, **kwargs):        
+        """
+        db_manager opcional para facilitar testing. En producción pasá el manager real.
+        """
         self.db_manager = db_manager
-        self.logger = logging.getLogger(__name__)
+        self.logger = kwargs.get('logger') if 'logger' in kwargs else None
+        #self.logger = logging.getLogger(__name__)
         self.progress_callback = None
+
+        # ---------- detección más conservadora de tokens de acorde ----------
+        _TRAD_ROOTS = ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]
+        _TRAD_TO_AMERICAN = {
+            "DO": "C", "RE": "D", "MI": "E", "FA": "F", "SOL": "G", "LA": "A", "SI": "B"
+        }
+        _ANGLO_CHORD_RE = re.compile(r'^[A-G](?:[#♯b♭]?)(?:m|maj|min|sus|dim|aug|add|\d+)?(?:[^\s]*)$', re.IGNORECASE)
         
     def set_progress_callback(self, callback):
         """Set callback for progress updates"""
@@ -119,18 +163,258 @@ class FileProcessor:
             i = j
         return tokens
 
+    """
+    Mejorado para acordes de notacion tradicional y americana
+    """
+    
+    # ---------- normalización a notación americana ----------
+    def normalize_traditional_to_american(self, token: str) -> str:
+        """
+        Convierte acordes tradicionales a americanos. Ejemplos:
+        'DO' -> 'C', 'DOm' -> 'Cm', 'FA#' -> 'F#', 'LA/DO#' -> 'A/C#'
+        """
+        if not token:
+            return token
+
+        # Si hay slash (bajo), procesar ambas partes
+        if '/' in token:
+            left, right = token.split('/', 1)
+            return f"{self.normalize_traditional_to_american(left)}/{self.normalize_traditional_to_american(right)}"
+
+        # Limpiar el token
+        tok = token.strip().strip("()[]{}").strip()
+
+        # Procesar la raíz primero
+        for trad, anglo in _TRAD_TO_ANG.items():
+            if tok.upper().startswith(trad):
+                suffix = tok[len(trad):]  # mantener el caso del sufijo
+                # Normalizar accidentales
+                if suffix.startswith(('#', '♯')):
+                    return anglo + '#' + suffix[1:]
+                elif suffix.startswith(('b', 'B', '♭')):
+                    return anglo + 'b' + suffix[1:]
+                return anglo + suffix
+
+        # Si no es tradicional, solo normalizar accidentales unicode
+        return tok.replace('♯', '#').replace('♭', 'b')
+
+    def _convert_single_chord(self, chord: str) -> str:
+        """
+        Convierte un solo acorde tradicional a americano.
+        Ej: DO -> C, DOm -> Cm, FA# -> F#, SOLm7 -> Gm7
+        """
+        chord = chord.strip().upper()
+
+        # Patrón: raíz (letras), accidental opcional (#/b), resto (m, 7, sus4...)
+        m = re.match(r'^(DO|RE|MI|FA|SOL|LA|SI)([#B]?)(.*)$', chord, re.IGNORECASE)
+        if m:
+            root, accidental, rest = m.groups()
+            base = self.TRAD_TO_AMERICAN.get(root.upper(), root)
+            return f"{base}{accidental}{rest}"
+
+        # Si no es tradicional, devolvemos tal cual (p. ej. C#m)
+        return chord
+    
     def _looks_like_chord(self, token: str) -> bool:
-        if CHORD_TOKEN_RE.fullmatch(token):
-            return True
-        lower = token.lower()
-        keywords = ["maj", "min", "sus", "dim", "aug", "add", "/"]
-        if any(ch in token for ch in ['#', 'b', '/', 'º', '♯', '♭']):
-            return True
-        if len(token) <= 5 and re.match(r'^[A-G]', token, re.IGNORECASE):
-            return True
-        if any(k in lower for k in keywords):
-            return True
-        return False
+        """
+        Determina si un token parece ser un acorde.
+        """
+        if not token or len(token) > 12:  # Evitar frases largas
+            return False
+
+        # Limpiar el token
+        tok = token.strip().strip("()[]{}").strip()
+
+        # Si contiene espacios, no es un acorde
+        if ' ' in tok:
+            return False
+
+        # Si es un slash chord, verificar ambas partes
+        if '/' in tok:
+            left, right = tok.split('/', 1)
+            return self._looks_like_chord(left) and self._looks_like_chord(right)
+
+        # Verificar si es notación tradicional
+        tok_up = tok.upper()
+        for root in _TRAD_TO_ANG:
+            if tok_up.startswith(root):
+                rest = tok_up[len(root):]
+                # Solo permitir sufijos válidos de acordes
+                return not rest or all(c in '#b♯♭mM7dim+aug' for c in rest)
+
+        # Verificar si es notación americana
+        return bool(_ANGLO_CHORD_RE.match(tok))
+
+    # Ejemplo de tu método existente
+    # parse_aligned_pair queda como la tenías (solo se asegura que use normalize_traditional_to_american)
+    def parse_aligned_pair(self, chord_line, lyric_line, anchor_fraction_default=0.5, tabsize=4):
+        """
+        Parser de pares de líneas (acordes/letra) alineados espacialmente.
+        """
+        chord_line = self._normalize_tabs(chord_line, tabsize)
+        lyric_line = self._normalize_tabs(lyric_line, tabsize)
+        chord_line, lyric_line = self._pad_to_same_length(chord_line, lyric_line)
+        
+        tokens = self._find_chord_tokens_in_line(chord_line)
+        chords = []
+        
+        for t in tokens:
+            token_text = t['text'].strip()
+            # Solo procesar tokens que parecen acordes
+            if not self._looks_like_chord(token_text):
+                continue
+                
+            start, end = t['start'], t['end']
+            char_index = self._map_token_to_lyric_index(start, end, lyric_line)
+            
+            # Normalizar el acorde
+            normalized = self.normalize_traditional_to_american(token_text)
+            
+            chords.append({
+                "chord": normalized,
+                "char_index": char_index,
+                "anchor_fraction": anchor_fraction_default,
+                "col_start": start,
+                "col_end": end
+            })
+            
+        return {
+            "text": lyric_line.rstrip(),
+            "chords": chords
+        }
+    
+    def _normalize_traditional_chord(self, token: str) -> str:
+        """
+        Normaliza token a notación americana. Comprueba primero raíces tradicionales (DO, RE, SOL...),
+        luego acepta notación anglosajona. Maneja bajos con '/', accidentales (#/b/♯/♭) y sufijos.
+        """
+        if not token:
+            return token
+
+        tok = token.strip()
+        tok = tok.strip("()[]{} ,;")  # limpiar
+
+        # Si hay slash (bajo), normalizamos ambas partes por separado
+        if '/' in tok:
+            left, right = tok.split('/', 1)
+            left_n = self._normalize_traditional_chord(left)
+            right_n = self._normalize_traditional_chord(right)
+            return f"{left_n}/{right_n}"
+
+        up = tok.upper()
+
+        # 1) Intentar detectar raíz tradicional (DO, RE, MI, SOL, LA, SI)
+        for root in _TRAD_ROOTS:
+            if up.startswith(root):
+                # separar raíz, posible accidental pegado y sufijo
+                suffix = tok[len(root):]  # conserva la misma capitalización del sufijo
+                # detectar accidental pegado en la siguiente posição (#, ♯, b, B, ♭)
+                accidental = ""
+                if suffix:
+                    nxt = suffix[0]
+                    if nxt in ['#', '♯']:
+                        accidental = '#'
+                        suffix = suffix[1:]
+                    elif nxt in ['b', 'B', '♭']:
+                        accidental = 'b'
+                        suffix = suffix[1:]
+                mapped_root = _TRAD_TO_ANG.get(root, root)
+                # devolver con accidental y resto tal cual
+                return f"{mapped_root}{accidental}{suffix}".replace(" ", "")
+
+        # 2) Si no es tradicional, intentar notación anglosajona (C, C#m, Bb7, F#)
+        m = _ANGLO_CHORD_RE.match(tok)
+        if m:
+            # normalizar accidental unicode
+            tok = tok.replace('♯', '#').replace('♭', 'b')
+            return tok.replace(" ", "")
+
+        # 3) Fallback: devolver token tal cual limpio
+        return tok.replace(" ", "")
+
+    def _map_traditional_root(self, root: str) -> str:
+        """
+        Convierte raíz tradicional (Do, Re, Mi...) a anglosajona (C, D, E...).
+        Si ya es anglosajona la devuelve en mayúscula.
+        """
+        if not root:
+            return root
+        r = root.strip().upper()
+        # Normalizar SOL -> SOL (en mapping existe)
+        return _TRAD_TO_ANG.get(r, r)  # si no está en el mapping, devuelve la misma (A-G)
+
+
+    # def _normalize_traditional_chord(self, token: str) -> str:
+    #     """
+    #     Normaliza un token de acorde a notación anglosajona.
+    #     Ejemplos:
+    #     'Do' -> 'C'
+    #     'Sib7' -> 'Bb7'
+    #     'Mib' -> 'Eb'
+    #     'Do#m' -> 'C#m'
+    #     'La/Do#' -> 'A/C#'
+    #     """
+    #     if not token:
+    #         return token
+
+    #     tok = token.strip().strip("()")  # quitar paréntesis externos
+
+    #     # separar por barra (bajo)
+    #     parts = tok.split("/", 1)
+    #     root_part = parts[0].strip()
+    #     bass_part = parts[1].strip() if len(parts) > 1 else None
+
+    #     # match root+accidental+rest
+    #     m = _CHORD_SIMPLE_RE.match(root_part)
+    #     if not m:
+    #         # no se reconoce la estructura; devolver token tal cual (pero limpio)
+    #         normalized_root = root_part
+    #         rest = ""
+    #     else:
+    #         root = m.group('root') or ""
+    #         accidental = m.group('accidental') or ""
+    #         rest = m.group('rest') or ""
+
+    #         # normalizar accidental unicode a símbolo ASCII
+    #         if accidental == '♯':
+    #             accidental = '#'
+    #         if accidental == '♭':
+    #             accidental = 'b'
+
+    #         # si root es tradicional (Do, Re, Mi...) mapear a A..G
+    #         root_ang = self._map_traditional_root(root)
+
+    #         # Caso especial: en notación hispana "Si" es B, "Sib" -> Bb si accidental 'b' aparecía pegado al raíz (ej "Sib")
+    #         # Si m.group captured accidental is empty but root_part endswith a lowercase 'b' (Sib),
+    #         # detectarlo: ejemplo "Sib7" -> root='Sib' en la regex? Dependiendo del input. Para robustez:
+    #         # si len(root_part) > len(root) y next char is 'b' or '#' considerarlo accidental.
+    #         # (pero regex ya captura accidental si está separado, así que este es fallback)
+    #         if accidental == "" and len(root_part) > len(root):
+    #             following = root_part[len(root):]
+    #             if following.startswith('b') or following.startswith('♭'):
+    #                 accidental = 'b'
+    #                 rest = following[1:] + rest
+    #             elif following.startswith('#') or following.startswith('♯'):
+    #                 accidental = '#'
+    #                 rest = following[1:] + rest
+
+    #         normalized_root = root_ang + accidental
+
+    #     # limpiar rest (mantener sufijos como m, maj, 7, sus4, etc.)
+    #     rest = rest.strip()
+
+    #     # ahora normalizar el bajo (bass) si existe
+    #     if bass_part:
+    #         # mapear recursivamente; evitar loops (pero bass_part es más pequeño)
+    #         mapped_bass = self._normalize_traditional_chord(bass_part)
+    #         normalized = f"{normalized_root}{rest}/{mapped_bass}"
+    #     else:
+    #         normalized = f"{normalized_root}{rest}"
+
+    #     # limpiar espacios dobles
+    #     normalized = normalized.replace(" ", "")
+    #     return normalized
+
 
     def _pad_to_same_length(self, a: str, b: str):
         la, lb = len(a), len(b)
@@ -149,31 +433,6 @@ class FileProcessor:
             return len(lyric_line) - 1 if len(lyric_line) > 0 else 0
         return int(round(center_col))
 
-    def parse_aligned_pair(self, chord_line: str, lyric_line: str,
-                        anchor_fraction_default: float = 0.5,
-                        tabsize: int = 4) -> Dict:
-        """
-        Devuelve dict: {"text": lyric_line, "chords": [ {chord, char_index, anchor_fraction, col_start, col_end}, ... ] }
-        """
-        chord_line = self._normalize_tabs(chord_line, tabsize)
-        lyric_line = self._normalize_tabs(lyric_line, tabsize)
-        chord_line, lyric_line = self._pad_to_same_length(chord_line, lyric_line)
-        tokens = self._find_chord_tokens_in_line(chord_line)
-        chords = []
-        for t in tokens:
-            token_text = t['text']
-            if not self._looks_like_chord(token_text):
-                continue
-            start, end = t['start'], t['end']
-            char_index = self._map_token_to_lyric_index(start, end, lyric_line)
-            chords.append({
-                "chord": token_text.strip(),
-                "char_index": char_index,
-                "anchor_fraction": anchor_fraction_default,
-                "col_start": start,
-                "col_end": end
-            })
-        return {"text": lyric_line.rstrip(), "chords": chords}
 
     def _extract_chord_lyric_pairs(self, lines: List[str]) -> List[Dict]:
         """
@@ -452,39 +711,6 @@ class FileProcessor:
             self.logger.error(f"Error reconstruyendo página: {e}")
             # Fallback al extract_text convencional
             return page.extract_text() or ""
-
-    # def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
-    #     """Crear una sola canción desde el texto completo del PDF"""
-    #     lines = text.split('\n')
-        
-    #     # Usar el nombre del archivo como título por defecto
-    #     file_name = os.path.splitext(os.path.basename(file_path))[0]
-        
-    #     # Buscar título real en las primeras líneas
-    #     title = self._extract_title_from_text(lines, file_name)
-        
-    #     # Detectar formato de la canción
-    #     if self._has_structured_format(text):
-    #         # Formato estructurado: con [ACORDES] y [SECCIONES]
-    #         all_chords = self._extract_chords_structured(text)
-    #         formatted_lyrics = self._format_structured_lyrics(text)
-    #     else:
-    #         # Formato no estructurado: acordes en líneas separadas
-    #         all_chords = self._extract_chords_unstructured(text)
-    #         formatted_lyrics = self._format_unstructured_lyrics(text)
-        
-    #     probable_key = self._detect_probable_key(all_chords)
-        
-    #     return {
-    #         'titulo': title,
-    #         'artista': 'Desconocido',
-    #         'letra': formatted_lyrics.strip(),
-    #         'tono_original': probable_key,
-    #         'acordes': ','.join(all_chords),
-    #         'estado': 'pendiente',
-    #         'categoria_id': 1,
-    #         'notas': f"Importado desde PDF: {os.path.basename(file_path)}"
-    #     }
 
     def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
         """Crear una sola canción desde el texto completo procesando pares acorde/lyrica (monospace-aligned)"""
@@ -1027,7 +1253,7 @@ class FileProcessor:
             # Esto debería filtrar "Lam", "rem", "SOL", "DO" en tu ejemplo.
             if self._is_chord_line(line):
                 continue
-                
+            
             # Saltar líneas que son secciones (usando el método existente)
             if self._is_section_line(line):
                 continue
