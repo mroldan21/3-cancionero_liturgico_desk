@@ -186,11 +186,11 @@ def _get_processor():
 ])
 def test_normalize_traditional_to_american(inp, expected):
     proc = _get_processor()
-    # prefer method name used in your FileProcessor if exists
-    if hasattr(proc, "_normalize_traditional_chord"):
+    # Usar normalize_traditional_to_american que es el nuevo método estándar
+    if hasattr(proc, "normalize_traditional_to_american"):
+        got = proc.normalize_traditional_to_american(inp)
+    elif hasattr(proc, "_normalize_traditional_chord"):
         got = proc._normalize_traditional_chord(inp)
-    elif hasattr(proc, "normalize_chord"):
-        got = proc.normalize_chord(inp)
     else:
         got = _fallback_normalize_traditional_chord(inp)
     assert got == expected, f"Token {inp!r} normalizado produjo {got!r}, esperaba {expected!r}"
@@ -201,7 +201,7 @@ def test_normalize_traditional_to_american(inp, expected):
     ("FA#", True),
     ("RE7", True),
     ("SIB", True),
-    ("ABLAH", True),  # contiene A at start -> likely chord by heuristics
+    ("ABLAH", False),  # Cambiar a False - no debería detectarse como acorde
     ("hola", False),
     ("Este no es acorde", False),
     ("C/G", True),
