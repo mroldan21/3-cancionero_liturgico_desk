@@ -196,19 +196,18 @@ class FileProcessor:
             'SOL': 'G', 'LA': 'A', 'SI': 'B'
         }
         
-        # Convertir a mayúsculas para comparación
-        normalized = chord.upper()
+        # Convertir a mayúsculas para manejar "Do", "do", "DO", etc.
+        chord_upper = chord.upper()
+        normalized = chord_upper
         
         # Reemplazar cada nota tradicional
         for traditional, american in traditional_to_american.items():
-            # Reemplazar solo si es el inicio del token o está después de /
-            if normalized.startswith(traditional):
-                normalized = normalized.replace(traditional, american, 1)
-            elif '/' + traditional in normalized:
-                normalized = normalized.replace('/' + traditional, '/' + american)
+            if traditional in normalized:
+                # Reemplazar manteniendo modificadores (m, 7, #, etc.)
+                normalized = normalized.replace(traditional, american)
         
         return normalized
-
+    
     def _convert_single_chord(self, chord: str) -> str:
         """
         Convierte un solo acorde tradicional a americano.
