@@ -184,16 +184,11 @@ def _get_processor():
     ("Eb", "Eb"),
     ("SOLm", "Gm"),
 ])
-def test_normalize_traditional_to_american(inp, expected):
-    proc = _get_processor()
-    # Usar normalize_traditional_to_american que es el nuevo método estándar
-    if hasattr(proc, "normalize_traditional_to_american"):
-        got = proc.normalize_traditional_to_american(inp)
-    elif hasattr(proc, "_normalize_traditional_chord"):
-        got = proc._normalize_traditional_chord(inp)
-    else:
-        got = _fallback_normalize_traditional_chord(inp)
-    assert got == expected, f"Token {inp!r} normalizado produjo {got!r}, esperaba {expected!r}"
+def test_normalize_traditional_to_american(self, input_chord, expected):
+    """Test de normalización de acordes tradicionales a americanos"""
+    processor = FileProcessor(None)
+    result = processor._normalize_traditional_to_american(input_chord)
+    assert result == expected, f"Token '{input_chord}' normalizado produjo '{result}', esperaba '{expected}'"
 
 @pytest.mark.parametrize("tok,expected", [
     ("DO", True),
@@ -207,29 +202,27 @@ def test_normalize_traditional_to_american(inp, expected):
     ("C/G", True),
     ("DO/FA", True),
 ])
-def test_looks_like_chord(tok, expected):
-    proc = _get_processor()
-    if hasattr(proc, "_looks_like_chord"):
-        got = proc._looks_like_chord(tok)
-    elif hasattr(proc, "looks_like_chord"):
-        got = proc.looks_like_chord(tok)
-    else:
-        got = _fallback_looks_like_chord(tok)
-    assert bool(got) is bool(expected), f"{tok!r} detected as {got}, esperaba {expected}"
+def test_looks_like_chord(self, input_text, expected):
+    """Test de detección de acordes válidos"""
+    processor = FileProcessor(None)
+    result = processor._is_valid_chord_token(input_text)
+    assert result == expected, f"'{input_text}' detected as {result}, esperaba {expected}"
 
-def test_parse_aligned_pair_simple():
-    proc = _get_processor()
-    # ejemplo simple alineado: chord above word "salgo"
-    chord_line = "   DO     SOL    "
-    lyric_line = "Cuando salgo a caminar"
-    if hasattr(proc, "parse_aligned_pair"):
-        out = proc.parse_aligned_pair(chord_line, lyric_line)
-    else:
-        out = _fallback_parse_aligned_pair(chord_line, lyric_line)
-    # buscamos un acorde 'C' (DO -> C) y 'G' (SOL -> G) en el resultado
-    chords = out.get("chords", [])
-    names = [c.get("chord") for c in chords]
-    assert "C" in names and "G" in names, f"No se normalizaron correctamente: {names}"
+def test_parse_aligned_pair_simple(self):
+    """Test de análisis de pares acorde-letra simples"""
+    processor = FileProcessor(None)
+    
+    # Línea de acordes tradicionales
+    chord_line = "DO SOL LAm"
+    lyric_line = "Esta es una prueba"
+    
+    result = processor._combine_chords_and_lyrics(chord_line, lyric_line)
+    
+    # Verificar que se normalizaron correctamente
+    assert "C" in result, "DO no se normalizó a C"
+    assert "G" in result, "SOL no se normalizó a G" 
+    assert "Am" in result, "LAm no se normalizó a Am"
+    assert "Esta es una prueba" in result, "Letra no se incluyó correctamente"
 
 def test_parse_aligned_pair_positions():
     proc = _get_processor()
