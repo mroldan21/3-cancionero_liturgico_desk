@@ -191,26 +191,82 @@ class FileProcessor:
     # ---------- normalización a notación americana ----------
     def _normalize_traditional_to_american(self, chord: str) -> str:
         """Normalizar acordes tradicionales a notación americana"""
-        traditional_to_american = {
+        # Mapeo de notas tradicionales a americanas
+        note_mapping = {
             'DO': 'C', 'RE': 'D', 'MI': 'E', 'FA': 'F', 
-            'SOL': 'G', 'LA': 'A', 'SI': 'B',
+            'SOL': 'G', 'LA': 'A', 'SI': 'B'
+        }
+        
+        # Convertir a mayúsculas para comparación
+        chord_upper = chord.upper()
+        
+        # Si es un acorde tradicional completo (como DOm, LAm, etc.)
+        traditional_complete = {
             'DOM': 'Cm', 'REM': 'Dm', 'MIM': 'Em', 'FAM': 'Fm',
             'SOLM': 'Gm', 'LAM': 'Am', 'SIM': 'Bm'
         }
         
         # Buscar coincidencias exactas primero
-        chord_upper = chord.upper()
-        if chord_upper in traditional_to_american:
-            return traditional_to_american[chord_upper]
+        if chord_upper in traditional_complete:
+            return traditional_complete[chord_upper]
         
-        # Buscar y reemplazar manteniendo modificadores
+        # Reemplazar notas tradicionales manteniendo modificadores
         normalized = chord_upper
-        for traditional, american in traditional_to_american.items():
-            if traditional in normalized:
-                normalized = normalized.replace(traditional, american)
+        for traditional, american in note_mapping.items():
+            # Reemplazar solo si es el inicio del acorde
+            if normalized.startswith(traditional):
+                # Mantener los modificadores (m, 7, #, b, etc.)
+                modifiers = normalized[len(traditional):]
+                normalized = american + modifiers
+                break
+        
+        # Asegurar que 'm' (minor) se mantenga en minúscula
+        if 'M' in normalized and len(normalized) > 1:
+            # Solo convertir M a m si no es parte de "MAJ"
+            if not normalized.upper().startswith('MAJ'):
+                normalized = normalized.replace('M', 'm')
         
         return normalized
     
+    def _is_valid_chord_token(self, token: str) -> bool:
+        """Determinar si un token es un acorde válido con mayor precisión"""
+        token = token.strip()
+        if not token or len(token) > 8:
+            return False
+        
+        # Patrón para acordes americanos
+        american_pattern = r'^[A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]?$'
+        
+        # Patrón para acordes tradicionales
+        traditional_pattern = r'^(DO|RE|MI|FA|SOL|LA|SI)[#b]?(?:m|maj|min|dim|aug)?[0-9]?$'
+        
+        return (bool(re.match(american_pattern, token, re.IGNORECASE)) or 
+                bool(re.match(traditional_pattern, token, re.IGNORECASE)))
+    
+    def _extract_chords_unstructured(self, text: str) -> List[str]:
+        """Extraer acordes de formato no estructurado (líneas separadas)"""
+        lines = text.split('\n')
+        chords = []
+        
+        for line in lines:
+            line = line.strip()
+            if self._is_chord_line(line):
+                # Extraer tokens que son acordes válidos
+                tokens = line.split()
+                for token in tokens:
+                    if self._is_valid_chord_token(token):
+                        # Normalizar a notación americana
+                        normalized_chord = self._normalize_traditional_to_american(token)
+                        # Asegurar que los acordes menores tengan 'm' minúscula
+                        if normalized_chord.endswith('M') and len(normalized_chord) > 1:
+                            normalized_chord = normalized_chord[:-1] + 'm'
+                        if normalized_chord not in chords:
+                            chords.append(normalized_chord)
+        
+        return chords    
+
+
+
     def _convert_single_chord(self, chord: str) -> str:
         """
         Convierte un solo acorde tradicional a americano.
@@ -452,7 +508,7 @@ class FileProcessor:
     # ---- FIN: funciones para parseo alineado ----
     
     def _is_chord_line(self, line: str) -> bool:
-        """Determinar si una línea es principalmente acordes con mayor precisión"""
+        """Determinar si una línea es principalmente acordes"""
         line = line.strip()
         if not line or len(line) < 2:
             return False
@@ -461,43 +517,23 @@ class FileProcessor:
         tokens = line.split()
         
         # Si hay muchos tokens, probablemente no es línea de acordes
-        if len(tokens) > 4:
+        if len(tokens) > 6:
             return False
         
         # Contador de acordes válidos en la línea
         chord_count = 0
-        total_tokens = len(tokens)
         
         for token in tokens:
             if self._is_valid_chord_token(token):
-                    chord_count += 1
-            
-            # Para ser considerada línea de acordes:
-            # - Al menos el 80% de los tokens deben ser acordes válidos
-            # - O si hay solo 1-2 tokens y al menos uno es acorde válido
-            if total_tokens <= 2:
-                return chord_count >= 1 and chord_count / total_tokens >= 0.5
-            else:
-                return chord_count / total_tokens >= 0.8
-
-    def _is_valid_chord_token(self, token: str) -> bool:
-        """Determinar si un token es un acorde válido con mayor precisión"""
-        token = token.strip().upper()
-        if not token or len(token) > 10:
-            return False
+                chord_count += 1
         
-        # Lista blanca de notas válidas
-        valid_notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'DO', 'RE', 'MI', 'FA', 'SOL', 'LA', 'SI']
-        
-        # Verificar si comienza con una nota válida
-        starts_with_valid_note = any(token.startswith(note) for note in valid_notes)
-        if not starts_with_valid_note:
-            return False
-        
-        # Patrón para modificadores válidos
-        chord_pattern = r'^[A-G]|DO|RE|MI|FA|SOL|LA|SI][#b]?(?:m|M|maj|min|dim|aug|sus|add)?[0-9]*(?:\/[A-G][#b]?)?$'
-        
-        return bool(re.match(chord_pattern, token, re.IGNORECASE))
+        # Para ser considerada línea de acordes:
+        # - Al menos el 70% de los tokens deben ser acordes válidos
+        # - O si hay solo 1-3 tokens y al menos uno es acorde válido
+        if len(tokens) <= 3:
+            return chord_count >= 1
+        else:
+            return chord_count / len(tokens) >= 0.7
        
     
     def _extract_chords_unstructured(self, text: str) -> List[str]:
@@ -514,6 +550,9 @@ class FileProcessor:
                     if self._is_valid_chord_token(token):
                         # Normalizar a notación americana
                         normalized_chord = self._normalize_traditional_to_american(token)
+                        # Asegurar que los acordes menores tengan 'm' minúscula
+                        if normalized_chord.endswith('M') and len(normalized_chord) > 1:
+                            normalized_chord = normalized_chord[:-1] + 'm'
                         if normalized_chord not in chords:
                             chords.append(normalized_chord)
         
@@ -1086,26 +1125,31 @@ class FileProcessor:
         }
         
     def _detect_probable_key(self, chords: List[str]) -> str:
-        """Detectar tonalidad probable basada en acordes"""
+        """Detectar tonalidad probable basada en acordes - Versión mejorada"""
         if not chords:
             return 'C'
-            
-        # Conteo de acordes (simplificado)
+        
+        # Conteo de acordes por nota base
         chord_count = {}
         for chord in chords:
-            base_chord = chord[0]  # Solo la nota base
-            chord_count[base_chord] = chord_count.get(base_chord, 0) + 1
-            
-        # Tonalidades más comunes en música cristiana
-        common_keys = ['C', 'G', 'D', 'A', 'F']
+            # Extraer la nota base (primera letra)
+            base_note = chord[0].upper() if chord else 'C'
+            chord_count[base_note] = chord_count.get(base_note, 0) + 1
+        
+        # Tonalidades más comunes en música cristiana (orden de probabilidad)
+        common_keys = ['G', 'C', 'D', 'A', 'F', 'E', 'Bb', 'Eb']
+        
+        # Buscar la tonalidad más probable
         for key in common_keys:
-            if key in chord_count:
+            base_note = key[0].upper()  # Extraer solo la nota base (G, C, D, etc.)
+            if base_note in chord_count:
                 return key
-                
+        
         # Fallback al acorde más común
         if chord_count:
-            return max(chord_count.items(), key=lambda x: x[1])[0]
-            
+            most_common = max(chord_count.items(), key=lambda x: x[1])[0]
+            return most_common
+        
         return 'C'
         
     def process_files_batch(self, file_paths: List[str], options: Dict = None) -> Dict:
@@ -1337,16 +1381,7 @@ class FileProcessor:
 
         def normalize_tabs(s: str) -> str:
             return s.replace('\t', ' ' * tabsize)
-
-        def is_chord_line(line: str) -> bool:
-            tokens = [t for t in line.strip().split() if t]
-            if not tokens:
-                return False
-            if any(ch in line for ch in ['#', 'b', '♯', '♭', '/']):
-                return True
-            if all(len(t) <= 4 and t[0].upper() in "ABCDEFG" for t in tokens):
-                return True
-            return False
+        
 
         lines = [normalize_tabs(l.rstrip()) for l in text.splitlines()]
         output_lines = []
