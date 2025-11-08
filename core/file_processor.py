@@ -1,3 +1,7 @@
+# ==============================================================================
+# PARTE 1: REEMPLAZAR LÍNEAS 1-120 (imports y constantes globales)
+# ==============================================================================
+
 import os
 import tempfile
 import logging
@@ -7,41 +11,51 @@ from datetime import datetime
 import re
 import json
 
-CHORD_TOKEN_RE = re.compile(r'[A-G](?:#|b|♯|♭)?(?:m|maj|min|sus|dim|aug|add)?\d*(?:/[A-G](?:#|b)?)?', re.IGNORECASE)
+# ==============================================================================
+# CONSTANTES GLOBALES - DEFINICIÓN ÚNICA Y CONSOLIDADA
+# ==============================================================================
 
-# Mapeo y raíces (ordenadas para match greedy: SOL antes que SI)
-_TRAD_TO_ANG = {
-    "DO": "C",
-    "RE": "D",
-    "MI": "E",
-    "FA": "F",
-    "SOL": "G",
-    "LA": "A",
-    "SI": "B"
+# Regex MEJORADO: Captura acordes americanos Y tradicionales
+CHORD_TOKEN_RE = re.compile(
+    r'''
+    (?:                                    # Grupo no capturante
+        (?:SOL|DO|RE|MI|FA|LA|SI)          # Acordes tradicionales (3 o 2 letras)
+        (?:[#b♯♭])?                         # Alteración opcional
+        (?:m|M|maj|min|dim|aug|sus|add)?   # Calidad opcional
+        \d*                                # Números opcionales (7, 9, etc.)
+        (?:/(?:SOL|DO|RE|MI|FA|LA|SI|[A-G])[#b]?)?  # Bajo opcional
+    |                                      # O
+        [A-G]                              # Acordes americanos (nota raíz)
+        (?:[#b♯♭])?                        # Alteración opcional
+        (?:m|M|maj|min|dim|aug|sus|add)?   # Calidad opcional
+        \d*                                # Números opcionales
+        (?:/[A-G][#b]?)?                   # Bajo opcional
+    )
+    ''',
+    re.IGNORECASE | re.VERBOSE
+)
+
+# Mapeo completo (ordenado para greedy matching)
+TRAD_TO_AMERICAN = {
+    # 3 letras primero
+    "SOL": "G", "SOLb": "Gb", "SOL#": "G#", "SOLm": "Gm",
+    # 2 letras
+    "DO": "C", "DOb": "Cb", "DO#": "C#", "DOm": "Cm",
+    "RE": "D", "REb": "Db", "RE#": "D#", "REm": "Dm",
+    "MI": "E", "MIb": "Eb", "MI#": "E#", "MIm": "Em",
+    "FA": "F", "FAb": "Fb", "FA#": "F#", "FAm": "Fm",
+    "LA": "A", "LAb": "Ab", "LA#": "A#", "LAm": "Am",
+    "SI": "B", "SIb": "Bb", "SI#": "B#", "SIm": "Bm",
 }
 
-# TRAD_TO_AMERICAN = {
-#         "DO": "C",
-#         "RE": "D",
-#         "MI": "E",
-#         "FA": "F",
-#         "SOL": "G",
-#         "LA": "A",
-#         "SI": "B",
-#         # versiones bemoles también
-#         "SIB": "Bb",
-#         "MIB": "Eb",
-#         "LAB": "Ab",
-#         "REb": "Db",
-#         "SOLb": "Gb",
-#         "DOb": "Cb",
-#     }
+TRAD_ROOTS = ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]
 
-# _TRAD_ROOTS = ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]
+# Regex de validación
+ANGLO_CHORD_RE = re.compile(
+    r'^[A-G](?:[#♯b♭]?)(?:m|M|maj|min|sus|dim|aug|add|\d+)?(?:.*)?$',
+    re.IGNORECASE
+)
 
-# _ANGLO_CHORD_RE = re.compile(r'^[A-G](?:[#♯b♭]?)(?:m(?:aj|min)?|maj|min|sus|dim|aug|add|\d+)?(?:.*)?$', re.IGNORECASE)
-
-_CHORD_SIMPLE_RE = re.compile(r'^(?P<root_part>\S+)$')  # fallback simple token
 
 # Try to import PDF processing libraries
 try:
@@ -82,14 +96,7 @@ class FileProcessor:
         self.db_manager = db_manager
         self.logger = kwargs.get('logger') if 'logger' in kwargs else None
         #self.logger = logging.getLogger(__name__)
-        self.progress_callback = None
-
-        # ---------- detección más conservadora de tokens de acorde ----------
-        _TRAD_ROOTS = ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]
-        _TRAD_TO_AMERICAN = {
-            "DO": "C", "RE": "D", "MI": "E", "FA": "F", "SOL": "G", "LA": "A", "SI": "B"
-        }
-        _ANGLO_CHORD_RE = re.compile(r'^[A-G](?:[#♯b♭]?)(?:m|maj|min|sus|dim|aug|add|\d+)?(?:[^\s]*)$', re.IGNORECASE)
+        self.progress_callback = None        
         
     def set_progress_callback(self, callback):
         """Set callback for progress updates"""
@@ -141,6 +148,110 @@ class FileProcessor:
                 'error': f'Error procesando PDF: {str(e)}'
             }
     
+# ==============================================================================
+# PARTE 2: FUNCIONES DE NORMALIZACIÓN ACTUALIZADAS (usar constantes globales)
+# ==============================================================================
+
+    def _normalize_traditional_to_american(self, chord: str) -> str:
+        """
+        Normalizar acordes tradicionales (DO, RE, MI...) a americana (C, D, E...)
+        Preserva sufijos completos (7, m7, maj7, etc.)
+        """
+        if not chord:
+            return chord
+            
+        chord_upper = chord.strip().upper()
+        
+        # 1. Intentar coincidencia exacta en el diccionario
+        if chord_upper in TRAD_TO_AMERICAN:
+            return TRAD_TO_AMERICAN[chord_upper]
+        
+        # 2. Buscar prefijos tradicionales (más largos primero: SOL antes que SI)
+        for trad_root in TRAD_ROOTS:
+            if chord_upper.startswith(trad_root):
+                # Extraer sufijo completo (todo después de la raíz)
+                suffix = chord_upper[len(trad_root):]
+                american_root = TRAD_TO_AMERICAN[trad_root]
+                
+                # Normalizar 'M' a 'm' solo si es menor (no MAJ)
+                if suffix and suffix[0] == 'M' and not suffix.startswith('MAJ'):
+                    suffix = 'm' + suffix[1:]
+                
+                return american_root + suffix
+        
+        # 3. Si no es tradicional, devolver original (puede ser ya americana)
+        return chord_upper
+    
+    def _is_valid_chord_token(self, token: str) -> bool:
+        """Determinar si un token es un acorde válido usando regex globales"""
+        token = token.strip()
+        if not token or len(token) > 10:
+            return False
+        
+        # Usar regex global para acordes americanos
+        if ANGLO_CHORD_RE.match(token):
+            return True
+        
+        # Verificar si coincide con patrón tradicional
+        token_upper = token.upper()
+        for trad_root in TRAD_ROOTS:
+            if token_upper.startswith(trad_root):
+                # Validar que el sufijo sea válido (opcional: m, 7, etc.)
+                suffix = token_upper[len(trad_root):]
+                # Sufijo vacío o válido (números, m, maj, min, etc.)
+                if not suffix or re.match(r'^[#b]?[mM]?(aj|in|im)?\d*$', suffix):
+                    return True
+        
+        return False
+    
+    def _looks_like_chord(self, token: str) -> bool:
+        """
+        Determinar si un token parece ser un acorde musical
+        (Usa _is_valid_chord_token internamente para consistencia)
+        """
+        if not token or not token.strip():
+            return False
+            
+        token = token.strip().strip("(),.;:")
+        
+        # Si tiene barra, verificar solo la parte izquierda (acorde/bajo)
+        if "/" in token:
+            left_part = token.split("/", 1)[0]
+            return self._looks_like_chord(left_part)
+        
+        # Usar la validación consolidada
+        return self._is_valid_chord_token(token)
+    
+    def _normalize_traditional_chord(self, token: str) -> str:
+        """
+        Alias de _normalize_traditional_to_american para compatibilidad
+        """
+        return self._normalize_traditional_to_american(token)
+    
+    def _is_chord_line(self, line: str) -> bool:
+        """Determinar si una línea es principalmente acordes"""
+        line = line.strip()
+        if not line or len(line) < 2:
+            return False
+        
+        # Si la línea es muy larga, probablemente no es solo acordes
+        if len(line) > 80:
+            return False
+        
+        # Dividir en tokens
+        tokens = [t for t in line.split() if t.strip()]
+        if not tokens:
+            return False
+        
+        # Contar acordes válidos
+        chord_count = sum(1 for token in tokens if self._is_valid_chord_token(token))
+        
+        # Línea es de acordes si >70% son acordes válidos
+        return chord_count / len(tokens) >= 0.7
+
+
+
+
     """ 
     *****************************************************************************************
     *****************************************************************************************
@@ -151,92 +262,92 @@ class FileProcessor:
     def _normalize_tabs(self, s: str, tabsize: int = 4) -> str:
         return s.replace("\t", " " * tabsize)
 
-    def _find_chord_tokens_in_line(self, chord_line: str):
-        """
-        Encontrar tokens de acordes en una línea
+    # def _find_chord_tokens_in_line(self, chord_line: str):
+    #     """
+    #     Encontrar tokens de acordes en una línea
         
-        Args:
-            chord_line: Línea que contiene acordes
+    #     Args:
+    #         chord_line: Línea que contiene acordes
             
-        Returns:
-            Lista de tokens con texto y posiciones
-        """
-        tokens = []
-        i = 0
-        n = len(chord_line)
+    #     Returns:
+    #         Lista de tokens con texto y posiciones
+    #     """
+    #     tokens = []
+    #     i = 0
+    #     n = len(chord_line)
         
-        while i < n:
-            # Saltar espacios
-            if chord_line[i].isspace():
-                i += 1
-                continue
+    #     while i < n:
+    #         # Saltar espacios
+    #         if chord_line[i].isspace():
+    #             i += 1
+    #             continue
                 
-            # Encontrar inicio y fin del token
-            j = i
-            while j < n and not chord_line[j].isspace():
-                j += 1
+    #         # Encontrar inicio y fin del token
+    #         j = i
+    #         while j < n and not chord_line[j].isspace():
+    #             j += 1
                 
-            token_text = chord_line[i:j]
-            if token_text.strip():  # Solo agregar tokens no vacíos
-                tokens.append({
-                    "text": token_text, 
-                    "start": i, 
-                    "end": j
-                })
+    #         token_text = chord_line[i:j]
+    #         if token_text.strip():  # Solo agregar tokens no vacíos
+    #             tokens.append({
+    #                 "text": token_text, 
+    #                 "start": i, 
+    #                 "end": j
+    #             })
                 
-            i = j
+    #         i = j
             
-        return tokens
+    #     return tokens
     
     # ---------- normalización a notación americana ----------
-    def _normalize_traditional_to_american(self, chord: str) -> str:
-        """Normalizar acordes tradicionales a notación americana"""
-        # Mapeo completo de notas tradicionales
-        traditional_to_american = {
-            'DO': 'C', 'RE': 'D', 'MI': 'E', 'FA': 'F', 
-            'SOL': 'G', 'LA': 'A', 'SI': 'B',
-            # Acordes menores tradicionales
-            'DOM': 'Cm', 'REM': 'Dm', 'MIM': 'Em', 'FAM': 'Fm',
-            'SOLM': 'Gm', 'LAM': 'Am', 'SIM': 'Bm',
-            # Sostenidos/bemoles
-            'DO#': 'C#', 'RE#': 'D#', 'FA#': 'F#', 'SOL#': 'G#', 'LA#': 'A#',
-            'REB': 'Db', 'MIB': 'Eb', 'SOLB': 'Gb', 'LAB': 'Ab', 'SIB': 'Bb'
-        }
+    # def _normalize_traditional_to_american(self, chord: str) -> str:
+    #     """Normalizar acordes tradicionales a notación americana"""
+    #     # Mapeo completo de notas tradicionales
+    #     traditional_to_american = {
+    #         'DO': 'C', 'RE': 'D', 'MI': 'E', 'FA': 'F', 
+    #         'SOL': 'G', 'LA': 'A', 'SI': 'B',
+    #         # Acordes menores tradicionales
+    #         'DOM': 'Cm', 'REM': 'Dm', 'MIM': 'Em', 'FAM': 'Fm',
+    #         'SOLM': 'Gm', 'LAM': 'Am', 'SIM': 'Bm',
+    #         # Sostenidos/bemoles
+    #         'DO#': 'C#', 'RE#': 'D#', 'FA#': 'F#', 'SOL#': 'G#', 'LA#': 'A#',
+    #         'REB': 'Db', 'MIB': 'Eb', 'SOLB': 'Gb', 'LAB': 'Ab', 'SIB': 'Bb'
+    #     }
         
-        # Convertir a mayúsculas
-        chord_upper = chord.upper().strip()
+    #     # Convertir a mayúsculas
+    #     chord_upper = chord.upper().strip()
         
-        # Buscar coincidencia exacta primero
-        if chord_upper in traditional_to_american:
-            return traditional_to_american[chord_upper]
+    #     # Buscar coincidencia exacta primero
+    #     if chord_upper in traditional_to_american:
+    #         return traditional_to_american[chord_upper]
         
-        # Buscar patrones con modificadores
-        for traditional, american in traditional_to_american.items():
-            if chord_upper.startswith(traditional):
-                # Mantener modificadores posteriores
-                modifiers = chord_upper[len(traditional):]
-                return american + modifiers
+    #     # Buscar patrones con modificadores
+    #     for traditional, american in traditional_to_american.items():
+    #         if chord_upper.startswith(traditional):
+    #             # Mantener modificadores posteriores
+    #             modifiers = chord_upper[len(traditional):]
+    #             return american + modifiers
         
-        return chord_upper  # Si no es tradicional, devolver original    
+    #     return chord_upper  # Si no es tradicional, devolver original    
     
-    def _is_valid_chord_token(self, token: str) -> bool:
-        """Determinar si un token es un acorde válido"""
-        token = token.strip()
-        if not token or len(token) > 10:
-            return False
+    # def _is_valid_chord_token(self, token: str) -> bool:
+    #     """Determinar si un token es un acorde válido"""
+    #     token = token.strip()
+    #     if not token or len(token) > 10:
+    #         return False
         
-        # Patrón para acordes americanos
-        american_pattern = r'^[A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]?$'
+    #     # Patrón para acordes americanos
+    #     american_pattern = r'^[A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]?$'
         
-        # Patrón para acordes tradicionales (más completo)
-        traditional_pattern = r'^(DO|RE|MI|FA|SOL|LA|SI)[#b]?(?:m|maj|min|dim|aug)?[0-9]?$'
+    #     # Patrón para acordes tradicionales (más completo)
+    #     traditional_pattern = r'^(DO|RE|MI|FA|SOL|LA|SI)[#b]?(?:m|maj|min|dim|aug)?[0-9]?$'
         
-        # Patrón para acordes con números (DO7, SOL7, etc.)
-        traditional_with_numbers = r'^(DO|RE|MI|FA|SOL|LA|SI)[0-9]+$'
+    #     # Patrón para acordes con números (DO7, SOL7, etc.)
+    #     traditional_with_numbers = r'^(DO|RE|MI|FA|SOL|LA|SI)[0-9]+$'
         
-        return (bool(re.match(american_pattern, token, re.IGNORECASE)) or 
-                bool(re.match(traditional_pattern, token, re.IGNORECASE)) or
-                bool(re.match(traditional_with_numbers, token, re.IGNORECASE)))
+    #     return (bool(re.match(american_pattern, token, re.IGNORECASE)) or 
+    #             bool(re.match(traditional_pattern, token, re.IGNORECASE)) or
+    #             bool(re.match(traditional_with_numbers, token, re.IGNORECASE)))
     
     def _extract_chords_unstructured(self, text: str) -> List[str]:
         """Extraer acordes de formato no estructurado (líneas separadas)"""
@@ -260,37 +371,37 @@ class FileProcessor:
         
         return chords    
 
-    def _is_chord_line(self, line: str) -> bool:
-        """Determinar si una línea es principalmente acordes"""
-        line = line.strip()
-        if not line or len(line) < 2:
-            return False
+    # def _is_chord_line(self, line: str) -> bool:
+    #     """Determinar si una línea es principalmente acordes"""
+    #     line = line.strip()
+    #     if not line or len(line) < 2:
+    #         return False
         
-        # Si la línea tiene mucho texto, probablemente no es de acordes
-        if len(line) > 50:
-            return False
+    #     # Si la línea tiene mucho texto, probablemente no es de acordes
+    #     if len(line) > 50:
+    #         return False
         
-        # Dividir la línea en tokens
-        tokens = line.split()
+    #     # Dividir la línea en tokens
+    #     tokens = line.split()
         
-        # Contador de acordes válidos
-        chord_count = 0
-        word_count = 0
+    #     # Contador de acordes válidos
+    #     chord_count = 0
+    #     word_count = 0
         
-        for token in tokens:
-            if self._is_valid_chord_token(token):
-                chord_count += 1
-            elif len(token) > 2:  # Palabras reales tienen más de 2 caracteres
-                word_count += 1
+    #     for token in tokens:
+    #         if self._is_valid_chord_token(token):
+    #             chord_count += 1
+    #         elif len(token) > 2:  # Palabras reales tienen más de 2 caracteres
+    #             word_count += 1
         
-        # Si hay palabras reales, no es línea de acordes
-        if word_count > 0:
-            return False
+    #     # Si hay palabras reales, no es línea de acordes
+    #     if word_count > 0:
+    #         return False
         
-        # Para ser línea de acordes, al menos el 60% deben ser acordes válidos
-        if len(tokens) > 0:
-            return chord_count / len(tokens) >= 0.6
-        return False
+    #     # Para ser línea de acordes, al menos el 60% deben ser acordes válidos
+    #     if len(tokens) > 0:
+    #         return chord_count / len(tokens) >= 0.6
+    #     return False
 
     def _convert_single_chord(self, chord: str) -> str:
         """
@@ -309,48 +420,48 @@ class FileProcessor:
         # Si no es tradicional, devolvemos tal cual (p. ej. C#m)
         return chord
     
-    def _looks_like_chord(self, token: str) -> bool:
-        """
-        Determinar si un token parece ser un acorde musical
+    # def _looks_like_chord(self, token: str) -> bool:
+    #     """
+    #     Determinar si un token parece ser un acorde musical
         
-        Args:
-            token: Token a evaluar
+    #     Args:
+    #         token: Token a evaluar
             
-        Returns:
-            True si parece ser un acorde, False en caso contrario
-        """
-        if not token or not token.strip():
-            return False
+    #     Returns:
+    #         True si parece ser un acorde, False en caso contrario
+    #     """
+    #     if not token or not token.strip():
+    #         return False
             
-        token = token.strip().strip("(),.;:")
+    #     token = token.strip().strip("(),.;:")
         
-        # Si tiene barra, verificar solo la parte izquierda
-        if "/" in token:
-            left_part = token.split("/", 1)[0]
-            return self._looks_like_chord(left_part)
+    #     # Si tiene barra, verificar solo la parte izquierda
+    #     if "/" in token:
+    #         left_part = token.split("/", 1)[0]
+    #         return self._looks_like_chord(left_part)
         
-        # Patrones de acordes americanos
-        american_pattern = r'^[A-G][#b]?'
-        if re.match(american_pattern, token, re.IGNORECASE):
-            return True
+    #     # Patrones de acordes americanos
+    #     american_pattern = r'^[A-G][#b]?'
+    #     if re.match(american_pattern, token, re.IGNORECASE):
+    #         return True
         
-        # Patrones de acordes tradicionales
-        traditional_notes = ["DO", "RE", "MI", "FA", "SOL", "LA", "SI"]
-        token_upper = token.upper()
-        if any(token_upper.startswith(note) for note in traditional_notes):
-            return True
+    #     # Patrones de acordes tradicionales
+    #     traditional_notes = ["DO", "RE", "MI", "FA", "SOL", "LA", "SI"]
+    #     token_upper = token.upper()
+    #     if any(token_upper.startswith(note) for note in traditional_notes):
+    #         return True
         
-        # Indicadores de acorde
-        chord_indicators = ['m', 'maj', 'min', 'sus', 'dim', 'aug', 'add', '7', '9', '11', '13', '/']
-        if any(indicator in token_upper for indicator in chord_indicators):
-            return True
+    #     # Indicadores de acorde
+    #     chord_indicators = ['m', 'maj', 'min', 'sus', 'dim', 'aug', 'add', '7', '9', '11', '13', '/']
+    #     if any(indicator in token_upper for indicator in chord_indicators):
+    #         return True
         
-        # Textos que definitivamente NO son acordes
-        non_chord_words = ['este', 'no', 'es', 'acorde', 'hola', 'cuando', 'salgo', 'caminar']
-        if token_upper.lower() in non_chord_words:
-            return False
+    #     # Textos que definitivamente NO son acordes
+    #     non_chord_words = ['este', 'no', 'es', 'acorde', 'hola', 'cuando', 'salgo', 'caminar']
+    #     if token_upper.lower() in non_chord_words:
+    #         return False
             
-        return False
+    #     return False
         
     def parse_aligned_pair(self, chord_line: str, lyric_line: str):
         """
@@ -401,53 +512,53 @@ class FileProcessor:
             "chords": chords
         }
 
-    def _normalize_traditional_chord(self, token: str) -> str:
-        """
-        Normalizar acorde de notación tradicional (DO, RE, MI) a americana (C, D, E)
+    # def _normalize_traditional_chord(self, token: str) -> str:
+    #     """
+    #     Normalizar acorde de notación tradicional (DO, RE, MI) a americana (C, D, E)
         
-        Args:
-            token: Token de acorde a normalizar (ej: "DO", "REm", "FA#")
+    #     Args:
+    #         token: Token de acorde a normalizar (ej: "DO", "REm", "FA#")
             
-        Returns:
-            Acorde normalizado en notación americana (ej: "C", "Dm", "F#")
-        """
-        if not token:
-            return token
+    #     Returns:
+    #         Acorde normalizado en notación americana (ej: "C", "Dm", "F#")
+    #     """
+    #     if not token:
+    #         return token
             
-        token = token.strip().strip("()[]{} ,;")
+    #     token = token.strip().strip("()[]{} ,;")
         
-        # Separar acorde y bajo (ej: "DO/RE" -> "C/D")
-        parts = token.split("/", 1)
-        root_part = parts[0].strip()
-        bass_part = parts[1].strip() if len(parts) > 1 else None
+    #     # Separar acorde y bajo (ej: "DO/RE" -> "C/D")
+    #     parts = token.split("/", 1)
+    #     root_part = parts[0].strip()
+    #     bass_part = parts[1].strip() if len(parts) > 1 else None
 
-        # Mapeo de notas tradicionales a americanas
-        TRADITIONAL_TO_AMERICAN = {
-            "DO": "C", "RE": "D", "MI": "E", "FA": "F", 
-            "SOL": "G", "LA": "A", "SI": "B"
-        }
+    #     # Mapeo de notas tradicionales a americanas
+    #     TRADITIONAL_TO_AMERICAN = {
+    #         "DO": "C", "RE": "D", "MI": "E", "FA": "F", 
+    #         "SOL": "G", "LA": "A", "SI": "B"
+    #     }
         
-        # Verificar si es notación tradicional
-        normalized_root = root_part
-        for trad_note, american_note in TRADITIONAL_TO_AMERICAN.items():
-            if root_part.upper().startswith(trad_note):
-                # Extraer alteraciones y resto del acorde
-                remaining = root_part[len(trad_note):]
-                normalized_root = american_note + remaining
-                break
+    #     # Verificar si es notación tradicional
+    #     normalized_root = root_part
+    #     for trad_note, american_note in TRADITIONAL_TO_AMERICAN.items():
+    #         if root_part.upper().startswith(trad_note):
+    #             # Extraer alteraciones y resto del acorde
+    #             remaining = root_part[len(trad_note):]
+    #             normalized_root = american_note + remaining
+    #             break
         
-        # Normalizar alteraciones
-        normalized_root = (normalized_root
-                        .replace('♯', '#')
-                        .replace('♭', 'b')
-                        .replace(' ', ''))
+    #     # Normalizar alteraciones
+    #     normalized_root = (normalized_root
+    #                     .replace('♯', '#')
+    #                     .replace('♭', 'b')
+    #                     .replace(' ', ''))
         
-        # Normalizar bajo si existe
-        if bass_part:
-            normalized_bass = self._normalize_traditional_chord(bass_part)
-            return f"{normalized_root}/{normalized_bass}"
-        else:
-            return normalized_root
+    #     # Normalizar bajo si existe
+    #     if bass_part:
+    #         normalized_bass = self._normalize_traditional_chord(bass_part)
+    #         return f"{normalized_root}/{normalized_bass}"
+    #     else:
+    #         return normalized_root
 
     def _map_traditional_root(self, root: str) -> str:
         """
@@ -1128,12 +1239,17 @@ class FileProcessor:
     
     def _process_single_file(self, file_path: str, options: Dict) -> Dict:
         """Procesar un solo archivo según su tipo"""
+        print(f"Procesando archivo: {file_path}")
         file_ext = os.path.splitext(file_path)[1].lower()
         
         if file_ext == '.pdf':
+            print("Procesando archivo PDF...")
             return self.process_pdf_file(file_path, options)
+        
         elif file_ext in ('.docx', '.doc') and DOCX_SUPPORT:
+            print("Procesando archivo DOCX...")
             return self._process_docx_file(file_path, options)
+        
         elif file_ext == '.txt':
             # Simple text file: read and create song
             try:
@@ -1159,17 +1275,22 @@ class FileProcessor:
         
     def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
         """Crear una sola canción desde el texto completo, formateada para tipografía monoespaciada."""
+        print("Creando canción desde texto completo...(_create_single_song_from_text)")
         lines = text.split('\n')
         file_name = os.path.splitext(os.path.basename(file_path))[0]
 
         # Título según tu lógica actual
         title = self._extract_title_from_text(lines, file_name)
+        print(f"Título extraído: {title}")
 
         # Reconstruir el texto con acordes alineados
         formatted_song = self._reconstruct_fixedwidth_song(text)
+        print("Letra formateada creada.")
+        print(formatted_song)
 
         # Detectar tonalidad
         probable_key = self._detect_tonality_from_text(formatted_song)
+        print(f"Tonalidad probable detectada: {probable_key}")
 
         return {
             'titulo': title,
@@ -1298,6 +1419,7 @@ class FileProcessor:
         """Procesar archivo Word (.docx) extrayendo párrafos como texto"""
         try:
             self._update_progress("Extrayendo texto desde Word...", 10)
+            print("Extrayendo texto desde Word...(_process_docx_file)")
             doc = DocxDocument(file_path)
             paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
             full_text = "\n".join(paragraphs)
@@ -1320,7 +1442,7 @@ class FileProcessor:
         Reconstruye texto de canción con acordes alineados en fuente monoespaciada.
         Detecta pares (línea de acordes, línea de letra) y los reensambla.
         """
-
+        print("Reconstruyendo canción en formato monoespaciado...(_reconstruct_fixedwidth_song)")
         def normalize_tabs(s: str) -> str:
             return s.replace('\t', ' ' * tabsize)
         
@@ -1370,98 +1492,233 @@ class FileProcessor:
                 i += 1
 
         # Unir líneas resultantes con salto de línea
+        print("Reconstrucción completada.")
+        print("\n".join(output_lines))
+        
         return "\n".join(output_lines)
 
-    def align_chord_over_lyric(self, chord_line: str, lyric_line: str, tabsize: int = 4) -> (str, str):
+    # def align_chord_over_lyric(self, chord_line: str, lyric_line: str, tabsize: int = 4) -> (str, str):
+    #     """
+    #     Reposiciona los tokens de chord_line para que queden centrados sobre caracteres
+    #     no-espacio en lyric_line lo más cercano posible.
+    #     Retorna (chord_line_aligned, lyric_line_padded)
+    #     """
+    #     # normaliza tabs ya asumido antes
+    #     # aseguramos longitud suficiente
+    #     max_len = max(len(chord_line), len(lyric_line))
+    #     chord = chord_line.ljust(max_len)
+    #     lyric = lyric_line.ljust(max_len)
+
+    #     # construimos un arreglo de chars para la nueva línea de acordes
+    #     chord_out = list(" " * max_len)
+
+    #     # encontramos tokens (cualquier secuencia non-space en chord_line)
+    #     for m in CHORD_TOKEN_RE.finditer(chord_line):
+    #         token = m.group(0)
+    #         start = m.start()
+    #         end = m.end()
+    #         # columna de referencia: centro del token
+    #         center = int(round((start + end - 1) / 2.0))
+
+    #         # buscar el índice de caracter de lyric más cercano no-espacio
+    #         # primero si el centro ya cae sobre un char visible -> usarlo
+    #         target = None
+    #         if center < len(lyric) and lyric[center] != " ":
+    #             target = center
+    #         else:
+    #             # buscar a la izquierda y derecha dentro del ancho del token y un margen
+    #             max_search = max(end - start, 6)  # al menos 6 cols de búsqueda
+    #             for d in range(1, max_search + 1):
+    #                 left = center - d
+    #                 right = center + d
+    #                 if left >= 0 and left < len(lyric) and lyric[left] != " ":
+    #                     target = left
+    #                     break
+    #                 if right >= 0 and right < len(lyric) and lyric[right] != " ":
+    #                     target = right
+    #                     break
+    #             # si no encuentra carácter visible, deja el centro (aunque sea espacio)
+    #             if target is None:
+    #                 target = min(center, len(lyric)-1)
+
+    #         # coloca el token centrado en target: calculamos left pos
+    #         # intentamos centrar token sobre target char
+    #         left_pos = target - (len(token) // 2)
+    #         # clamp left_pos a 0..max_len-len(token)
+    #         left_pos = max(0, min(left_pos, max_len - len(token)))
+
+    #         # si hay conflicto con tokens previos, desplazar a la derecha hasta que quepa
+    #         conflict_shift = 0
+    #         while True:
+    #             conflict = False
+    #             for j in range(len(token)):
+    #                 if chord_out[left_pos + j + conflict_shift] != " ":
+    #                     conflict = True
+    #                     break
+    #             if not conflict:
+    #                 break
+    #             conflict_shift += 1
+    #             if left_pos + conflict_shift + len(token) > max_len:
+    #                 # no cabe a la derecha; intentar desplazar a la izquierda desde original left_pos
+    #                 # (buscamos la primera posición libre hacia la izquierda)
+    #                 found_left = False
+    #                 for shift_left in range(1, len(token)+1):
+    #                     lp = left_pos - shift_left
+    #                     if lp < 0:
+    #                         break
+    #                     ok = True
+    #                     for j in range(len(token)):
+    #                         if chord_out[lp + j] != " ":
+    #                             ok = False
+    #                             break
+    #                     if ok:
+    #                         left_pos = lp
+    #                         conflict_shift = 0
+    #                         found_left = True
+    #                         break
+    #                 if not found_left:
+    #                     # no hay solución limpia: sobrescribir (última opción)
+    #                     break
+    #         left_pos += conflict_shift
+
+    #         # finalmente escribir token en chord_out
+    #         for j, ch in enumerate(token):
+    #             pos = left_pos + j
+    #             if 0 <= pos < max_len:
+    #                 chord_out[pos] = ch
+
+    #     chord_aligned = "".join(chord_out).rstrip()
+    #     lyric_padded = lyric.rstrip()
+    #     return chord_aligned, lyric_padded
+
+# ==============================================================================
+# REEMPLAZAR align_chord_over_lyric (aproximadamente línea 815-890)
+# ==============================================================================
+
+    def align_chord_over_lyric(self, chord_line: str, lyric_line: str, tabsize: int = 4) -> tuple:
         """
-        Reposiciona los tokens de chord_line para que queden centrados sobre caracteres
-        no-espacio en lyric_line lo más cercano posible.
-        Retorna (chord_line_aligned, lyric_line_padded)
+        Reposiciona tokens de acordes sobre la letra, normalizándolos y separándolos.
+        
+        CAMBIO CLAVE: Extrae tokens individualmente y los separa con espacio.
+        
+        Args:
+            chord_line: Línea con acordes (puede tener tokens pegados como "DmD7")
+            lyric_line: Línea con letra
+            tabsize: Tamaño de tab para normalización
+            
+        Returns:
+            tuple: (chord_line_aligned, lyric_line_padded)
         """
-        # normaliza tabs ya asumido antes
-        # aseguramos longitud suficiente
-        max_len = max(len(chord_line), len(lyric_line))
+        # 1. Normalizar tabs a espacios
+        chord_line = chord_line.replace("\t", " " * tabsize)
+        lyric_line = lyric_line.replace("\t", " " * tabsize)
+        
+        # 2. Ajustar longitudes
+        max_len = max(len(chord_line), len(lyric_line), 100)  # Mínimo 100 para dar espacio
         chord = chord_line.ljust(max_len)
         lyric = lyric_line.ljust(max_len)
-
-        # construimos un arreglo de chars para la nueva línea de acordes
+        
+        # 3. Array para construir línea de acordes alineada
         chord_out = list(" " * max_len)
-
-        # encontramos tokens (cualquier secuencia non-space en chord_line)
-        for m in CHORD_TOKEN_RE.finditer(chord_line):
-            token = m.group(0)
-            start = m.start()
-            end = m.end()
-            # columna de referencia: centro del token
-            center = int(round((start + end - 1) / 2.0))
-
-            # buscar el índice de caracter de lyric más cercano no-espacio
-            # primero si el centro ya cae sobre un char visible -> usarlo
-            target = None
-            if center < len(lyric) and lyric[center] != " ":
-                target = center
-            else:
-                # buscar a la izquierda y derecha dentro del ancho del token y un margen
-                max_search = max(end - start, 6)  # al menos 6 cols de búsqueda
-                for d in range(1, max_search + 1):
-                    left = center - d
-                    right = center + d
-                    if left >= 0 and left < len(lyric) and lyric[left] != " ":
-                        target = left
+        
+        # 4. CRÍTICO: Extraer tokens INDIVIDUALES usando regex
+        #    Esto separa "DmD7" en ["Dm", "D7"]
+        tokens_found = []
+        
+        for match in CHORD_TOKEN_RE.finditer(chord_line):
+            token_text = match.group(0)
+            
+            # Validar que sea acorde
+            if not self._is_valid_chord_token(token_text):
+                continue
+            
+            tokens_found.append({
+                'text': token_text,
+                'start': match.start(),
+                'end': match.end()
+            })
+        
+        # 5. Procesar cada token encontrado
+        current_write_pos = 0  # Posición actual de escritura (evita solapamientos)
+        
+        for token_info in tokens_found:
+            token = token_info['text']
+            start = token_info['start']
+            end = token_info['end']
+            
+            # 5.1 Normalizar acorde (DO -> C, REm -> Dm, etc.)
+            normalized = self._normalize_traditional_to_american(token)
+            
+            # 5.2 Calcular centro del token original
+            center = (start + end) // 2
+            
+            # 5.3 Buscar posición objetivo en letra (char más cercano no-espacio)
+            target = center
+            for distance in range(0, max_len):
+                for offset in [distance, -distance]:
+                    pos = center + offset
+                    if 0 <= pos < len(lyric) and lyric[pos] != ' ':
+                        target = pos
                         break
-                    if right >= 0 and right < len(lyric) and lyric[right] != " ":
-                        target = right
-                        break
-                # si no encuentra carácter visible, deja el centro (aunque sea espacio)
-                if target is None:
-                    target = min(center, len(lyric)-1)
-
-            # coloca el token centrado en target: calculamos left pos
-            # intentamos centrar token sobre target char
-            left_pos = target - (len(token) // 2)
-            # clamp left_pos a 0..max_len-len(token)
-            left_pos = max(0, min(left_pos, max_len - len(token)))
-
-            # si hay conflicto con tokens previos, desplazar a la derecha hasta que quepa
-            conflict_shift = 0
-            while True:
-                conflict = False
-                for j in range(len(token)):
-                    if chord_out[left_pos + j + conflict_shift] != " ":
-                        conflict = True
-                        break
-                if not conflict:
+                if target != center:
                     break
-                conflict_shift += 1
-                if left_pos + conflict_shift + len(token) > max_len:
-                    # no cabe a la derecha; intentar desplazar a la izquierda desde original left_pos
-                    # (buscamos la primera posición libre hacia la izquierda)
-                    found_left = False
-                    for shift_left in range(1, len(token)+1):
-                        lp = left_pos - shift_left
-                        if lp < 0:
-                            break
-                        ok = True
-                        for j in range(len(token)):
-                            if chord_out[lp + j] != " ":
-                                ok = False
-                                break
-                        if ok:
-                            left_pos = lp
-                            conflict_shift = 0
-                            found_left = True
-                            break
-                    if not found_left:
-                        # no hay solución limpia: sobrescribir (última opción)
-                        break
-            left_pos += conflict_shift
-
-            # finalmente escribir token en chord_out
-            for j, ch in enumerate(token):
-                pos = left_pos + j
-                if 0 <= pos < max_len:
-                    chord_out[pos] = ch
-
+            
+            # 5.4 Calcular posición de escritura centrada sobre target
+            left_pos = max(0, target - len(normalized) // 2)
+            
+            # 5.5 CRÍTICO: Evitar solapamiento con tokens previos
+            #     Si la posición calculada solapa con lo ya escrito, mover a la derecha
+            if left_pos < current_write_pos:
+                left_pos = current_write_pos
+            
+            # 5.6 Verificar que no se pase del límite
+            if left_pos + len(normalized) >= max_len:
+                left_pos = max_len - len(normalized) - 2  # Dejar espacio para separador
+            
+            # 5.7 Escribir token normalizado
+            for i, ch in enumerate(normalized):
+                if left_pos + i < max_len:
+                    chord_out[left_pos + i] = ch
+            
+            # 5.8 CRÍTICO: Agregar ESPACIO separador después del token
+            separator_pos = left_pos + len(normalized)
+            if separator_pos < max_len:
+                chord_out[separator_pos] = ' '
+                current_write_pos = separator_pos + 1  # Siguiente token empieza después del espacio
+            else:
+                current_write_pos = separator_pos
+        
+        # 6. Convertir array a string y limpiar
         chord_aligned = "".join(chord_out).rstrip()
         lyric_padded = lyric.rstrip()
+        
         return chord_aligned, lyric_padded
+
+
+    # ==============================================================================
+    # FUNCIÓN AUXILIAR: Extraer tokens de línea de acordes (si no existe)
+    # ==============================================================================
+
+    def _find_chord_tokens_in_line(self, chord_line: str) -> List[Dict]:
+        """
+        Encontrar tokens de acordes en una línea usando regex global.
+        
+        Args:
+            chord_line: Línea con acordes
+            
+        Returns:
+            Lista de dicts con 'text', 'start', 'end' para cada token
+        """
+        tokens = []
+        
+        for match in CHORD_TOKEN_RE.finditer(chord_line):
+            token_text = match.group(0).strip()
+            
+            if token_text and self._is_valid_chord_token(token_text):
+                tokens.append({
+                    'text': token_text,
+                    'start': match.start(),
+                    'end': match.end()
+                })
+        
+        return tokens

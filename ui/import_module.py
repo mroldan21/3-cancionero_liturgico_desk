@@ -571,11 +571,16 @@ class ImportModule:
                 
                 # Procesar archivo individual
                 file_result = self.file_processor._process_single_file(file_path, options)
-                
+                print(f"Resultado procesamiento {file_info['name']}: {file_result}")
+                                
                 if file_result['success']:
                     songs_found = file_result.get('songs_found', [])
+                    print(f"Canciones encontradas en {file_info['name']}: {len(songs_found)}")
+
                     if songs_found:
                         all_songs.extend(songs_found)
+                        print(f"✅ Canciones agregadas de {file_info['name']}")
+
                         # Actualizar estado en treeview
                         self.update_file_status(file_info['name'], '✅ Completado')
                     else:
@@ -596,6 +601,11 @@ class ImportModule:
                     song['fuente'] = 'importacion_pdf'
                 
                 # Guardar en BD y almacenar localmente
+                print("Guardando canciones encontradas en la base de datos...")
+                print(f"Número total de canciones a guardar: {len(all_songs)}")
+                print(f"Primeras canciones: {all_songs[:3]}")  # Mostrar primeras 3 canciones para depuración
+                print(f"contenido de la primera canción: {all_songs[0]}")  # Mostrar contenido de la primera canción
+                
                 save_results = self.file_processor.save_songs_to_database(all_songs)
                 self.imported_songs = all_songs  # Guardar referencia local
                 
@@ -623,7 +633,7 @@ class ImportModule:
 
     def _navigate_to_editor(self, retry_count=0):
         """Navegar al editor con las canciones importadas de forma segura"""
-        MAX_RETRIES = 3  # Límite de reintentos
+        MAX_RETRIES = 1  # Límite de reintentos
         try:
             if hasattr(self.app, 'editor') and self.app.editor:
                 # Recargar categorías primero
