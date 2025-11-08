@@ -792,44 +792,44 @@ class FileProcessor:
             # Fallback al extract_text convencional
             return page.extract_text() or ""
 
-    def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
-        """Crear una sola canción desde el texto completo procesando pares acorde/lyrica (monospace-aligned)"""
-        lines = text.split('\n')
+    # def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
+    #     """Crear una sola canción desde el texto completo procesando pares acorde/lyrica (monospace-aligned)"""
+    #     lines = text.split('\n')
 
-        # Usar el nombre del archivo como título por defecto
-        file_name = os.path.splitext(os.path.basename(file_path))[0]
+    #     # Usar el nombre del archivo como título por defecto
+    #     file_name = os.path.splitext(os.path.basename(file_path))[0]
 
-        # Buscar título real en las primeras líneas (mantén tu lógica actual)
-        title = self._extract_title_from_text(lines, file_name)
+    #     # Buscar título real en las primeras líneas (mantén tu lógica actual)
+    #     title = self._extract_title_from_text(lines, file_name)
 
-        # Intentar extraer pares acorde/lyrica
-        parsed_lines = self._extract_chord_lyric_pairs(lines)
+    #     # Intentar extraer pares acorde/lyrica
+    #     parsed_lines = self._extract_chord_lyric_pairs(lines)
 
-        # Construir estructura de acordes a almacenar (puede ser JSON)
-        acordes_struct = []
-        for pl in parsed_lines:
-            # cada pl ya tiene keys: "text", "chords", "line_index"
-            acordes_struct.append({
-                "line_index": pl.get("line_index"),
-                "texto_linea": pl.get("text"),
-                "chords": pl.get("chords", [])
-            })
+    #     # Construir estructura de acordes a almacenar (puede ser JSON)
+    #     acordes_struct = []
+    #     for pl in parsed_lines:
+    #         # cada pl ya tiene keys: "text", "chords", "line_index"
+    #         acordes_struct.append({
+    #             "line_index": pl.get("line_index"),
+    #             "texto_linea": pl.get("text"),
+    #             "chords": pl.get("chords", [])
+    #         })
 
-        # Detectar tonalidad (opcional)
-        probable_key = self._detect_tonality_from_text(text)
+    #     # Detectar tonalidad (opcional)
+    #     probable_key = self._detect_tonality_from_text(text)
 
-        # Guardar la letra "plana" (sin modificar) y los acordes estructurados
-        return {
-            'titulo': title,
-            'artista': 'Desconocido',
-            'letra': text.strip(),
-            'tono_original': probable_key,
-            # guardamos como JSON serializado; tu repositorio puede querer dict directo
-            'acordes': acordes_struct, # json.dumps(acordes_struct, ensure_ascii=False),
-            'estado': 'pendiente',
-            'categoria_id': 1,
-            'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
-        }
+    #     # Guardar la letra "plana" (sin modificar) y los acordes estructurados
+    #     return {
+    #         'titulo': title,
+    #         'artista': 'Desconocido',
+    #         'letra': text.strip(),
+    #         'tono_original': probable_key,
+    #         # guardamos como JSON serializado; tu repositorio puede querer dict directo
+    #         'acordes': acordes_struct, # json.dumps(acordes_struct, ensure_ascii=False),
+    #         'estado': 'pendiente',
+    #         'categoria_id': 1,
+    #         'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
+    #     }
 
 
     def _detect_tonality_from_text(self, text: str) -> str:
@@ -871,47 +871,47 @@ class FileProcessor:
         """Formatear letra en formato estructurado (ya está bien formateada)"""
         return text
 
-    def _format_unstructured_lyrics(self, text: str) -> str:
-        """Formatear letra en formato no estructurado para mejor visualización"""
-        lines = text.split('\n')
-        formatted_lines = []
-        i = 0
+    # def _format_unstructured_lyrics(self, text: str) -> str:
+    #     """Formatear letra en formato no estructurado para mejor visualización"""
+    #     lines = text.split('\n')
+    #     formatted_lines = []
+    #     i = 0
         
-        while i < len(lines):
-            line = lines[i].strip()
-            if not line:
-                i += 1
-                continue
+    #     while i < len(lines):
+    #         line = lines[i].strip()
+    #         if not line:
+    #             i += 1
+    #             continue
                 
-            # Detectar si es línea de acordes
-            if self._is_chord_line(line):
-                chord_line = line
-                lyric_line = ""
+    #         # Detectar si es línea de acordes
+    #         if self._is_chord_line(line):
+    #             chord_line = line
+    #             lyric_line = ""
                 
-                # Buscar línea de letra siguiente
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if (next_line and 
-                        not self._is_chord_line(next_line) and 
-                        not self._is_section_line(next_line)):
-                        lyric_line = next_line
-                        i += 1  # Saltar la línea de letra ya que la procesamos
+    #             # Buscar línea de letra siguiente
+    #             if i + 1 < len(lines):
+    #                 next_line = lines[i + 1].strip()
+    #                 if (next_line and 
+    #                     not self._is_chord_line(next_line) and 
+    #                     not self._is_section_line(next_line)):
+    #                     lyric_line = next_line
+    #                     i += 1  # Saltar la línea de letra ya que la procesamos
                 
-                # Formatear como línea estructurada
-                formatted_line = self._combine_chords_and_lyrics(chord_line, lyric_line)
-                formatted_lines.append(formatted_line)
+    #             # Formatear como línea estructurada
+    #             formatted_line = self._combine_chords_and_lyrics(chord_line, lyric_line)
+    #             formatted_lines.append(formatted_line)
                 
-            # Detectar secciones (líneas en mayúsculas o con patrones)
-            elif self._is_section_line(line):
-                formatted_lines.append(f"\n[{line}]")
+    #         # Detectar secciones (líneas en mayúsculas o con patrones)
+    #         elif self._is_section_line(line):
+    #             formatted_lines.append(f"\n[{line}]")
                 
-            # Línea de letra normal
-            else:
-                formatted_lines.append(line)
+    #         # Línea de letra normal
+    #         else:
+    #             formatted_lines.append(line)
                 
-            i += 1
+    #         i += 1
         
-        return '\n'.join(formatted_lines)
+    #     return '\n'.join(formatted_lines)
 
         
     def _is_section_line(self, line: str) -> bool:

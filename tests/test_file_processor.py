@@ -169,7 +169,7 @@ def _get_processor():
 
 # --------------------- Tests ---------------------
 
-@pytest.mark.parametrize("inp,expected", [
+@pytest.mark.parametrize("input_chord,expected", [
     ("DO", "C"),
     ("DOm", "Cm"),
     ("FA#", "F#"),
@@ -190,7 +190,7 @@ def test_normalize_traditional_to_american(self, input_chord, expected):
     result = processor._normalize_traditional_to_american(input_chord)
     assert result == expected, f"Token '{input_chord}' normalizado produjo '{result}', esperaba '{expected}'"
 
-@pytest.mark.parametrize("tok,expected", [
+@pytest.mark.parametrize("input_text,expected", [
     ("DO", True),
     ("DOm", True),
     ("FA#", True),
