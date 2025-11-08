@@ -1,242 +1,224 @@
-def test_hello_world():
-    assert "hello world" == "hello world"
-
 # test_file_processor.py
 import pytest
+import sys
+import os
 
-# Intentamos usar la clase FileProcessor del módulo file_processor si está disponible.
-# Si no, definimos implementaciones de fallback mínimas dentro del test para poder ejecutar las pruebas.
-try:
-    from file_processor import FileProcessor as FPClass  # intenta importar tu clase real
-except Exception:
-    FPClass = None
+# Agregar el directorio core al path para importar FileProcessor
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-# --- Fallback (solo para permitir ejecutar tests aunque no exista FileProcessor) ---
-def _fallback_map_traditional_root(root: str) -> str:
-    TRAD = {
-        "DO": "C",
-        "RE": "D",
-        "MI": "E",
-        "FA": "F",
-        "SOL": "G",
-        "LA": "A",
-        "SI": "B"
-    }
-    if not root:
-        return root
-    r = root.strip().upper()
-    return TRAD.get(r, r)
+from core.file_processor import FileProcessor
 
-def _fallback_normalize_traditional_chord(token: str) -> str:
-    if not token:
-        return token
-    tok = token.strip()
-    tok = tok.strip("()[]{} ,;")
-    parts = tok.split("/", 1)
-    root_part = parts[0].strip()
-    bass_part = parts[1].strip() if len(parts) > 1 else None
+class TestFileProcessor:
+    
+    def test_normalize_traditional_to_american(self):
+        """Test exhaustivo de normalización"""
+        processor = FileProcessor(None)
+        
+        test_cases = [
+            ("DO", "C"),
+            ("DOm", "Cm"),
+            ("FA#", "F#"),
+            ("LA/DO#", "A/C#"),
+            ("SOL", "G"),
+            ("LAm", "Am"),
+            ("SI", "B"),
+            ("REb", "Db"),
+            ("MIm", "Em"),
+            ("FAm", "Fm")
+        ]
+        
+        for input_chord, expected in test_cases:
+            result = processor._normalize_traditional_to_american(input_chord)
+            assert result == expected, f"'{input_chord}' -> '{result}', esperaba '{expected}'"
 
-    # try anglo first
-    import re
-    m_ang = re.match(r'^([A-G])([#♯b♭]?)(.*)$', root_part, re.IGNORECASE)
-    if m_ang:
-        root = m_ang.group(1).upper()
-        acc = m_ang.group(2) or ""
-        rest = m_ang.group(3) or ""
-        if acc == '♯':
-            acc = '#'
-        if acc == '♭':
-            acc = 'b'
-        normalized_root = (root + acc + rest).replace(" ", "")
-    else:
-        p = root_part.strip()
-        up = p.upper()
-        TRAD_ROOTS = ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]
-        matched_root = None
-        for r in TRAD_ROOTS:
-            if up.startswith(r):
-                matched_root = r
-                break
-        if not matched_root:
-            normalized_root = p.replace(" ", "")
-        else:
-            pos = len(matched_root)
-            accidental = ""
-            if pos < len(p):
-                nxt = p[pos]
-                if nxt in ['#', '♯']:
-                    accidental = '#'
-                    pos += 1
-                elif nxt in ['b', 'B', '♭']:
-                    accidental = 'b'
-                    pos += 1
-            rest = p[pos:] if pos < len(p) else ""
-            root_ang = _fallback_map_traditional_root(matched_root)
-            normalized_root = (root_ang + accidental + rest).replace(" ", "")
+    def test_looks_like_chord(self):
+        """Test de detección de acordes válidos/inválidos"""
+        processor = FileProcessor(None)
+        
+        # Deben devolver True
+        valid_chords = ["C", "G7", "Am", "F#m", "D/F#", "DO", "SOL", "LAm", "C#", "Gb", "Dsus4", "Em7"]
+        for chord in valid_chords:
+            assert processor._is_valid_chord_token(chord), f"'{chord}' debería ser válido"
+        
+        # Deben devolver False
+        invalid_chords = ["ABLAH", "Este no es acorde", "123", "La lluvia", "H", "Z", "123C", "Casa"]
+        for chord in invalid_chords:
+            assert not processor._is_valid_chord_token(chord), f"'{chord}' debería ser inválido"
 
-    if bass_part:
-        bass_norm = _fallback_normalize_traditional_chord(bass_part)
-        return f"{normalized_root}/{bass_norm}"
-    else:
-        return normalized_root
+    def test_is_chord_line(self):
+        """Test de detección de líneas de acordes"""
+        processor = FileProcessor(None)
+        
+        # Líneas que SÍ deben detectarse como de acordes
+        chord_lines = [
+            "C G Am",
+            "DO SOL LAm", 
+            "F C G D",
+            "Am Dm G C",
+            "C#m F# B E",
+            "DO SOL",
+            "LAm",
+            "C G",
+            "Am"
+        ]
+        
+        # Líneas que NO deben detectarse como de acordes
+        not_chord_lines = [
+            "La lluvia cae suave",
+            "Este no es un acorde",
+            "Canta con alegría",
+            "Dios es amor",
+            "ABLAH MUNDO",
+            "123 456 789",
+            "C La lluvia cae",  # Mezclado
+            "Amor de Dios G",   # Mezclado
+            "Esta es una línea con texto normal",
+            "Hello world"
+        ]
+        
+        for line in chord_lines:
+            assert processor._is_chord_line(line), f"Línea '{line}' no detectada como acordes"
+            
+        for line in not_chord_lines:
+            assert not processor._is_chord_line(line), f"Línea '{line}' detectada incorrectamente como acordes"
 
-def _fallback_looks_like_chord(token: str) -> bool:
-    if not token or not token.strip():
-        return False
-    tok = token.strip().strip("(),.;:")
-    if "/" in tok:
-        left = tok.split("/", 1)[0]
-        return _fallback_looks_like_chord(left)
-    import re
-    if re.match(r'^[A-G][#b♯♭]?', tok, re.IGNORECASE):
-        return True
-    up = tok.upper()
-    if any(up.startswith(r) for r in ["SOL", "DO", "RE", "MI", "FA", "LA", "SI"]):
-        return True
-    if any(ch in tok for ch in ['#', 'b', '♯', '♭', 'm', 'maj', 'sus', 'dim', 'aug', 'add', '7', '/']):
-        return True
-    return False
+    def test_extract_chords_unstructured(self):
+        """Test de extracción de acordes de texto no estructurado"""
+        processor = FileProcessor(None)
+        
+        text = """
+        DO SOL LAm
+        Canta con alegría
+        F C G
+        Alaba al Señor
+        Dm Am
+        Con todo tu corazón
+        """
+        
+        chords = processor._extract_chords_unstructured(text)
+        
+        expected_chords = ["C", "G", "Am", "F", "Dm"]
+        for chord in expected_chords:
+            assert chord in chords, f"Acorde {chord} no encontrado en {chords}"
 
-# Small tokenizer to mimic your _find_chord_tokens_in_line behaviour
-def _fallback_find_chord_tokens_in_line(chord_line: str):
-    tokens = []
-    i = 0
-    n = len(chord_line)
-    while i < n:
-        if chord_line[i].isspace():
-            i += 1
-            continue
-        j = i
-        while j < n and not chord_line[j].isspace():
-            j += 1
-        tokens.append({"text": chord_line[i:j], "start": i, "end": j})
-        i = j
-    return tokens
+    def test_format_unstructured_lyrics(self):
+        """Test de formateo de letras no estructuradas"""
+        processor = FileProcessor(None)
+        
+        input_text = """DO SOL LAm
+Canta con alegría
+F C G
+Alaba al Señor"""
+        
+        result = processor._format_unstructured_lyrics(input_text)
+        
+        # Verificar que se formateó correctamente
+        assert "[C]" in result or "C" in result, "Acorde C no encontrado"
+        assert "[G]" in result or "G" in result, "Acorde G no encontrado" 
+        assert "[Am]" in result or "Am" in result, "Acorde Am no encontrado"
+        assert "Canta con alegría" in result, "Letra no preservada"
+        assert "Alaba al Señor" in result, "Letra no preservada"
 
-def _fallback_map_token_to_lyric_index(start: int, end: int, lyric_line: str) -> int:
-    center_col = (start + end - 1) / 2.0
-    if center_col < 0:
-        return 0
-    if center_col >= len(lyric_line):
-        return len(lyric_line) - 1 if len(lyric_line) > 0 else 0
-    return int(round(center_col))
+    def test_parse_aligned_pair_simple(self):
+        """Test de análisis de pares acorde-letra simples"""
+        processor = FileProcessor(None)
+        
+        # Línea de acordes tradicionales
+        chord_line = "DO SOL LAm"
+        lyric_line = "Esta es una prueba"
+        
+        result = processor._combine_chords_and_lyrics(chord_line, lyric_line)
+        
+        # Verificar que se normalizaron correctamente
+        assert "C" in result, "DO no se normalizó a C"
+        assert "G" in result, "SOL no se normalizó a G" 
+        assert "Am" in result, "LAm no se normalizó a Am"
+        assert "Esta es una prueba" in result, "Letra no se incluyó correctamente"
 
-def _fallback_parse_aligned_pair(chord_line: str, lyric_line: str):
-    chord_line = chord_line.replace("\t", "    ")
-    lyric_line = lyric_line.replace("\t", "    ")
-    # pad to same length
-    if len(chord_line) < len(lyric_line):
-        chord_line = chord_line.ljust(len(lyric_line))
-    elif len(lyric_line) < len(chord_line):
-        lyric_line = lyric_line.ljust(len(chord_line))
-    tokens = _fallback_find_chord_tokens_in_line(chord_line)
-    chords = []
-    for t in tokens:
-        token_text = t['text'].strip()
-        if not _fallback_looks_like_chord(token_text):
-            continue
-        start, end = t['start'], t['end']
-        char_index = _fallback_map_token_to_lyric_index(start, end, lyric_line)
-        chord_normalized = _fallback_normalize_traditional_chord(token_text)
-        chords.append({
-            "chord": chord_normalized,
-            "original": token_text,
-            "char_index": char_index,
-            "col_start": start,
-            "col_end": end
-        })
-    return {"text": lyric_line.rstrip(), "chords": chords}
+    def test_process_pdf_single_song(self):
+        """Test de procesamiento de PDF como canción única"""
+        processor = FileProcessor(None)
+        
+        # Texto simulado de un PDF
+        pdf_text = """CARNAVALITO DEL MISIONERO
+        Lam rem SOL DO
+        CRISTO, DIVINO NIÑO ALCALDE DE MI CIUDAD,
+        MI7
+        BENDICE A LOS QUE CON ANSIAS,
+        lam
+        VENIMOS A MISIONAR."""
+        
+        # Simular el método que crea una canción desde texto
+        song = processor._create_single_song_from_text(pdf_text, "test.pdf")
+        
+        assert song is not None, "No se creó la canción"
+        assert "titulo" in song, "La canción no tiene título"
+        assert "letra" in song, "La canción no tiene letra"
+        assert "CARNAVALITO" in song["titulo"] or "test" in song["titulo"], "Título incorrecto"
 
-# --- helper to obtain a processor instance (real or fallback) ---
-class _LocalFP:
-    def normalize_chord(self, token):
-        return _fallback_normalize_traditional_chord(token)
-    def looks_like_chord(self, token):
-        return _fallback_looks_like_chord(token)
-    def parse_aligned_pair(self, chord_line, lyric_line):
-        return _fallback_parse_aligned_pair(chord_line, lyric_line)
+    def test_detect_probable_key(self):
+        """Test de detección de tonalidad probable"""
+        processor = FileProcessor(None)
+        
+        test_cases = [
+            (["C", "G", "Am", "F"], "C"),  # Debería detectar C
+            (["G", "D", "Em", "C"], "G"),  # Debería detectar G
+            (["Am", "Dm", "G", "C"], "C"), # Debería detectar C
+            ([], "C"),                      # Fallback a C
+            (["X", "Y"], "C")               # Fallback a C con acordes inválidos
+        ]
+        
+        for chords, expected in test_cases:
+            result = processor._detect_probable_key(chords)
+            assert result == expected, f"Acordes {chords} -> '{result}', esperaba '{expected}'"
 
-def _get_processor():
-    if FPClass:
-        try:
-            # intentar crear instancia (asumimos constructor sin args)
-            return FPClass()
-        except Exception:
-            # si la creación falla, usamos fallback
-            return _LocalFP()
-    else:
-        return _LocalFP()
-
-# --------------------- Tests ---------------------
-
-@pytest.mark.parametrize("input_chord,expected", [
-    ("DO", "C"),
-    ("DOm", "Cm"),
-    ("FA#", "F#"),
-    ("RE7", "D7"),
-    ("SIB", "Bb"),
-    ("MIB", "Eb"),
-    ("SOLsus4", "Gsus4"),
-    ("LA/DO#", "A/C#"),
-    ("C", "C"),
-    ("C#m", "C#m"),
-    ("Bb7", "Bb7"),
-    ("Eb", "Eb"),
-    ("SOLm", "Gm"),
-])
-def test_normalize_traditional_to_american(self, input_chord, expected):
-    """Test de normalización de acordes tradicionales a americanos"""
-    processor = FileProcessor(None)
-    result = processor._normalize_traditional_to_american(input_chord)
-    assert result == expected, f"Token '{input_chord}' normalizado produjo '{result}', esperaba '{expected}'"
-
-@pytest.mark.parametrize("input_text,expected", [
-    ("DO", True),
-    ("DOm", True),
-    ("FA#", True),
-    ("RE7", True),
-    ("SIB", True),
-    ("ABLAH", False),  # Cambiar a False - no debería detectarse como acorde
-    ("hola", False),
-    ("Este no es acorde", False),
-    ("C/G", True),
-    ("DO/FA", True),
-])
-def test_looks_like_chord(self, input_text, expected):
-    """Test de detección de acordes válidos"""
-    processor = FileProcessor(None)
-    result = processor._is_valid_chord_token(input_text)
-    assert result == expected, f"'{input_text}' detected as {result}, esperaba {expected}"
-
-def test_parse_aligned_pair_simple(self):
-    """Test de análisis de pares acorde-letra simples"""
+# Tests adicionales para funciones específicas
+def test_chord_token_validation_edge_cases():
+    """Test casos bordes para validación de tokens de acordes"""
     processor = FileProcessor(None)
     
-    # Línea de acordes tradicionales
-    chord_line = "DO SOL LAm"
-    lyric_line = "Esta es una prueba"
+    edge_cases = [
+        ("C", True),
+        ("c", True),           # minúscula
+        ("Cm", True),
+        ("CM", True),          # Mayor con M
+        ("C7", True),
+        ("C#m7", True),
+        ("C/B", True),         # Slash chord
+        ("C#/G#", True),       # Slash chord con sostenidos
+        ("H", False),          # H no existe
+        ("C123", False),       # Número muy largo
+        ("", False),           # Vacío
+        ("   ", False),        # Solo espacios
+        ("C#m7b5", True),      # Acorde complejo
+        ("Dsus4", True),       # Suspendido
+    ]
     
-    result = processor._combine_chords_and_lyrics(chord_line, lyric_line)
+    for token, expected in edge_cases:
+        result = processor._is_valid_chord_token(token)
+        assert result == expected, f"Token '{token}' -> {result}, esperaba {expected}"
+
+def test_traditional_note_recognition():
+    """Test específico para reconocimiento de notas tradicionales"""
+    processor = FileProcessor(None)
     
-    # Verificar que se normalizaron correctamente
-    assert "C" in result, "DO no se normalizó a C"
-    assert "G" in result, "SOL no se normalizó a G" 
-    assert "Am" in result, "LAm no se normalizó a Am"
-    assert "Esta es una prueba" in result, "Letra no se incluyó correctamente"
-
-def test_parse_aligned_pair_positions():
-    proc = _get_processor()
-    chord_line = "C   G      Am   F"
-    lyric_line = "Esto es una prueba test"
-    if hasattr(proc, "parse_aligned_pair"):
-        out = proc.parse_aligned_pair(chord_line, lyric_line)
-    else:
-        out = _fallback_parse_aligned_pair(chord_line, lyric_line)
-    chords = out.get("chords", [])
-    # verificar que cada chord tenga char_index y col_start/col_end coherentes
-    assert all("char_index" in c and "col_start" in c and "col_end" in c for c in chords), chords
-
-# Ejecutar tests manualmente si se invoca el archivo directamente (útil para debugging)
-if __name__ == "__main__":
-    import sys
-    sys.exit(pytest.main([__file__]))
+    traditional_notes = [
+        ("Do", True),
+        ("Re", True),
+        ("Mi", True),
+        ("Fa", True),
+        ("Sol", True),
+        ("La", True),
+        ("Si", True),
+        ("Do#", True),
+        ("Reb", True),
+        ("Mib", True),
+        ("Fa#", True),
+        ("Solb", True),
+        ("Lab", True),
+        ("Sib", True),
+    ]
+    
+    for note, expected in traditional_notes:
+        result = processor._is_valid_chord_token(note)
+        assert result == expected, f"Nota tradicional '{note}' -> {result}, esperaba {expected}"

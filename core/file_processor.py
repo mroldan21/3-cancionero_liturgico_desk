@@ -193,17 +193,20 @@ class FileProcessor:
         """Normalizar acordes tradicionales a notación americana"""
         traditional_to_american = {
             'DO': 'C', 'RE': 'D', 'MI': 'E', 'FA': 'F', 
-            'SOL': 'G', 'LA': 'A', 'SI': 'B'
+            'SOL': 'G', 'LA': 'A', 'SI': 'B',
+            'DOM': 'Cm', 'REM': 'Dm', 'MIM': 'Em', 'FAM': 'Fm',
+            'SOLM': 'Gm', 'LAM': 'Am', 'SIM': 'Bm'
         }
         
-        # Convertir a mayúsculas para manejar "Do", "do", "DO", etc.
+        # Buscar coincidencias exactas primero
         chord_upper = chord.upper()
-        normalized = chord_upper
+        if chord_upper in traditional_to_american:
+            return traditional_to_american[chord_upper]
         
-        # Reemplazar cada nota tradicional
+        # Buscar y reemplazar manteniendo modificadores
+        normalized = chord_upper
         for traditional, american in traditional_to_american.items():
             if traditional in normalized:
-                # Reemplazar manteniendo modificadores (m, 7, #, etc.)
                 normalized = normalized.replace(traditional, american)
         
         return normalized
@@ -479,28 +482,23 @@ class FileProcessor:
 
     def _is_valid_chord_token(self, token: str) -> bool:
         """Determinar si un token es un acorde válido con mayor precisión"""
-        token = token.strip()
-        if not token or len(token) > 10:  # Los acordes no son muy largos
+        token = token.strip().upper()
+        if not token or len(token) > 10:
             return False
         
-        # Patrón más estricto para acordes
-        # Notas válidas: C, D, E, F, G, A, B (y sus variantes)
-        # Modificadores: #, b, m, maj, min, dim, aug, sus, add
-        # Extensiones: números 2-13
-        # Slash chords: /C, /G, etc.
+        # Lista blanca de notas válidas
+        valid_notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'DO', 'RE', 'MI', 'FA', 'SOL', 'LA', 'SI']
         
-        chord_pattern = r'^[A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]*(?:\/[A-G][#b]?)?$'
+        # Verificar si comienza con una nota válida
+        starts_with_valid_note = any(token.startswith(note) for note in valid_notes)
+        if not starts_with_valid_note:
+            return False
         
-        # Verificar con regex
-        if re.match(chord_pattern, token, re.IGNORECASE):
-            return True
+        # Patrón para modificadores válidos
+        chord_pattern = r'^[A-G]|DO|RE|MI|FA|SOL|LA|SI][#b]?(?:m|M|maj|min|dim|aug|sus|add)?[0-9]*(?:\/[A-G][#b]?)?$'
         
-        # Verificar acordes tradicionales (DO, RE, MI, etc.)
-        traditional_pattern = r'^(DO|RE|MI|FA|SOL|LA|SI)[#b]?(?:m|maj|min|dim|aug)?[0-9]*(?:\/(DO|RE|MI|FA|SOL|LA|SI)[#b]?)?$'
-        if re.match(traditional_pattern, token, re.IGNORECASE):
-            return True
-        
-        return False        
+        return bool(re.match(chord_pattern, token, re.IGNORECASE))
+       
     
     def _extract_chords_unstructured(self, text: str) -> List[str]:
         """Extraer acordes de formato no estructurado (líneas separadas)"""
