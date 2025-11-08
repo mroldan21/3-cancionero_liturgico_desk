@@ -191,57 +191,52 @@ class FileProcessor:
     # ---------- normalización a notación americana ----------
     def _normalize_traditional_to_american(self, chord: str) -> str:
         """Normalizar acordes tradicionales a notación americana"""
-        # Mapeo de notas tradicionales a americanas
-        note_mapping = {
+        # Mapeo completo de notas tradicionales
+        traditional_to_american = {
             'DO': 'C', 'RE': 'D', 'MI': 'E', 'FA': 'F', 
-            'SOL': 'G', 'LA': 'A', 'SI': 'B'
-        }
-        
-        # Convertir a mayúsculas para comparación
-        chord_upper = chord.upper()
-        
-        # Si es un acorde tradicional completo (como DOm, LAm, etc.)
-        traditional_complete = {
+            'SOL': 'G', 'LA': 'A', 'SI': 'B',
+            # Acordes menores tradicionales
             'DOM': 'Cm', 'REM': 'Dm', 'MIM': 'Em', 'FAM': 'Fm',
-            'SOLM': 'Gm', 'LAM': 'Am', 'SIM': 'Bm'
+            'SOLM': 'Gm', 'LAM': 'Am', 'SIM': 'Bm',
+            # Sostenidos/bemoles
+            'DO#': 'C#', 'RE#': 'D#', 'FA#': 'F#', 'SOL#': 'G#', 'LA#': 'A#',
+            'REB': 'Db', 'MIB': 'Eb', 'SOLB': 'Gb', 'LAB': 'Ab', 'SIB': 'Bb'
         }
         
-        # Buscar coincidencias exactas primero
-        if chord_upper in traditional_complete:
-            return traditional_complete[chord_upper]
+        # Convertir a mayúsculas
+        chord_upper = chord.upper().strip()
         
-        # Reemplazar notas tradicionales manteniendo modificadores
-        normalized = chord_upper
-        for traditional, american in note_mapping.items():
-            # Reemplazar solo si es el inicio del acorde
-            if normalized.startswith(traditional):
-                # Mantener los modificadores (m, 7, #, b, etc.)
-                modifiers = normalized[len(traditional):]
-                normalized = american + modifiers
-                break
+        # Buscar coincidencia exacta primero
+        if chord_upper in traditional_to_american:
+            return traditional_to_american[chord_upper]
         
-        # Asegurar que 'm' (minor) se mantenga en minúscula
-        if 'M' in normalized and len(normalized) > 1:
-            # Solo convertir M a m si no es parte de "MAJ"
-            if not normalized.upper().startswith('MAJ'):
-                normalized = normalized.replace('M', 'm')
+        # Buscar patrones con modificadores
+        for traditional, american in traditional_to_american.items():
+            if chord_upper.startswith(traditional):
+                # Mantener modificadores posteriores
+                modifiers = chord_upper[len(traditional):]
+                return american + modifiers
         
-        return normalized
+        return chord_upper  # Si no es tradicional, devolver original    
     
     def _is_valid_chord_token(self, token: str) -> bool:
-        """Determinar si un token es un acorde válido con mayor precisión"""
+        """Determinar si un token es un acorde válido"""
         token = token.strip()
-        if not token or len(token) > 8:
+        if not token or len(token) > 10:
             return False
         
         # Patrón para acordes americanos
         american_pattern = r'^[A-G][#b]?(?:m|maj|min|dim|aug|sus|add)?[0-9]?$'
         
-        # Patrón para acordes tradicionales
+        # Patrón para acordes tradicionales (más completo)
         traditional_pattern = r'^(DO|RE|MI|FA|SOL|LA|SI)[#b]?(?:m|maj|min|dim|aug)?[0-9]?$'
         
+        # Patrón para acordes con números (DO7, SOL7, etc.)
+        traditional_with_numbers = r'^(DO|RE|MI|FA|SOL|LA|SI)[0-9]+$'
+        
         return (bool(re.match(american_pattern, token, re.IGNORECASE)) or 
-                bool(re.match(traditional_pattern, token, re.IGNORECASE)))
+                bool(re.match(traditional_pattern, token, re.IGNORECASE)) or
+                bool(re.match(traditional_with_numbers, token, re.IGNORECASE)))
     
     def _extract_chords_unstructured(self, text: str) -> List[str]:
         """Extraer acordes de formato no estructurado (líneas separadas)"""
@@ -265,7 +260,37 @@ class FileProcessor:
         
         return chords    
 
-
+    def _is_chord_line(self, line: str) -> bool:
+        """Determinar si una línea es principalmente acordes"""
+        line = line.strip()
+        if not line or len(line) < 2:
+            return False
+        
+        # Si la línea tiene mucho texto, probablemente no es de acordes
+        if len(line) > 50:
+            return False
+        
+        # Dividir la línea en tokens
+        tokens = line.split()
+        
+        # Contador de acordes válidos
+        chord_count = 0
+        word_count = 0
+        
+        for token in tokens:
+            if self._is_valid_chord_token(token):
+                chord_count += 1
+            elif len(token) > 2:  # Palabras reales tienen más de 2 caracteres
+                word_count += 1
+        
+        # Si hay palabras reales, no es línea de acordes
+        if word_count > 0:
+            return False
+        
+        # Para ser línea de acordes, al menos el 60% deben ser acordes válidos
+        if len(tokens) > 0:
+            return chord_count / len(tokens) >= 0.6
+        return False
 
     def _convert_single_chord(self, chord: str) -> str:
         """
@@ -494,7 +519,7 @@ class FileProcessor:
             if is_chord and i + 1 < n:
                 next_line = lines[i+1]
                 # empareja chord_line (line) con lyric_line (next_line)
-                parsed = parse_aligned_pair(self, line, next_line)
+                parsed = self.parse_aligned_pair(self, line, next_line)
                 parsed['line_index'] = i+1  # índice de la línea de letra en el conjunto original
                 pairs.append(parsed)
                 i += 2
@@ -504,37 +529,8 @@ class FileProcessor:
                 # guardamos como línea sin acordes
                 pairs.append({"text": line.rstrip(), "chords": [], "line_index": i})
                 i += 1
-        return pairs
-    # ---- FIN: funciones para parseo alineado ----
-    
-    def _is_chord_line(self, line: str) -> bool:
-        """Determinar si una línea es principalmente acordes"""
-        line = line.strip()
-        if not line or len(line) < 2:
-            return False
-        
-        # Dividir la línea en tokens (palabras)
-        tokens = line.split()
-        
-        # Si hay muchos tokens, probablemente no es línea de acordes
-        if len(tokens) > 6:
-            return False
-        
-        # Contador de acordes válidos en la línea
-        chord_count = 0
-        
-        for token in tokens:
-            if self._is_valid_chord_token(token):
-                chord_count += 1
-        
-        # Para ser considerada línea de acordes:
-        # - Al menos el 70% de los tokens deben ser acordes válidos
-        # - O si hay solo 1-3 tokens y al menos uno es acorde válido
-        if len(tokens) <= 3:
-            return chord_count >= 1
-        else:
-            return chord_count / len(tokens) >= 0.7
-       
+        return pairs    
+           
     
     def _extract_chords_unstructured(self, text: str) -> List[str]:
         """Extraer acordes de formato no estructurado (líneas separadas)"""
@@ -559,7 +555,7 @@ class FileProcessor:
         return chords    
     
     def _format_unstructured_lyrics(self, text: str) -> str:
-        """Formatear letra en formato no estructurado para mejor visualización"""
+        """Formatear letra en formato no estructurado preservando espaciado"""
         lines = text.split('\n')
         formatted_lines = []
         i = 0
@@ -567,6 +563,7 @@ class FileProcessor:
         while i < len(lines):
             line = lines[i].strip()
             if not line:
+                formatted_lines.append("")
                 i += 1
                 continue
                 
@@ -575,36 +572,54 @@ class FileProcessor:
                 chord_line = line
                 lyric_line = ""
                 
-                # Buscar línea de letra siguiente
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
+                # Buscar línea de letra siguiente (no vacía, no acordes, no sección)
+                j = i + 1
+                while j < len(lines) and not lyric_line:
+                    next_line = lines[j].strip()
                     if (next_line and 
                         not self._is_chord_line(next_line) and 
                         not self._is_section_line(next_line)):
                         lyric_line = next_line
-                        i += 1  # Saltar la línea de letra ya que la procesamos
+                    j += 1
                 
-                # Formatear como línea estructurada [Acorde] Letra
                 if lyric_line:
-                    # Combinar acordes con letra
-                    formatted_line = self._combine_chords_and_lyrics(chord_line, lyric_line)
+                    # Combinar preservando el espaciado original
+                    formatted_line = self._combine_chords_with_spacing(chord_line, lyric_line)
                     formatted_lines.append(formatted_line)
+                    i = j  # Saltar las líneas procesadas
                 else:
                     # Solo acordes
                     formatted_lines.append(chord_line)
-                
-            # Detectar secciones
-            elif self._is_section_line(line):
-                formatted_lines.append(f"\n[{line}]")
-                
-            # Línea de letra normal
+                    i += 1
             else:
+                # Línea normal
                 formatted_lines.append(line)
-                
-            i += 1
+                i += 1
         
         return '\n'.join(formatted_lines)
     
+    def _combine_chords_with_spacing(self, chord_line: str, lyric_line: str) -> str:
+        """Combinar acordes con letra preservando espaciado"""
+        if not lyric_line:
+            return chord_line
+        
+        # Extraer acordes válidos con sus posiciones
+        chords_with_positions = []
+        tokens = chord_line.split()
+        
+        for token in tokens:
+            if self._is_valid_chord_token(token):
+                normalized = self._normalize_traditional_to_american(token)
+                chords_with_positions.append(normalized)
+        
+        if not chords_with_positions:
+            return lyric_line
+        
+        # Para simplificar, poner acordes al inicio por ahora
+        # En una versión avanzada, se alinearían sobre la letra
+        chords_str = ' '.join([f"[{chord}]" for chord in chords_with_positions])
+        return f"{chords_str} {lyric_line}"
+
     """
     *****************************************************************************************
     *****************************************************************************************
@@ -829,46 +844,7 @@ class FileProcessor:
             # Fallback al extract_text convencional
             return page.extract_text() or ""
 
-    # def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
-    #     """Crear una sola canción desde el texto completo procesando pares acorde/lyrica (monospace-aligned)"""
-    #     lines = text.split('\n')
-
-    #     # Usar el nombre del archivo como título por defecto
-    #     file_name = os.path.splitext(os.path.basename(file_path))[0]
-
-    #     # Buscar título real en las primeras líneas (mantén tu lógica actual)
-    #     title = self._extract_title_from_text(lines, file_name)
-
-    #     # Intentar extraer pares acorde/lyrica
-    #     parsed_lines = self._extract_chord_lyric_pairs(lines)
-
-    #     # Construir estructura de acordes a almacenar (puede ser JSON)
-    #     acordes_struct = []
-    #     for pl in parsed_lines:
-    #         # cada pl ya tiene keys: "text", "chords", "line_index"
-    #         acordes_struct.append({
-    #             "line_index": pl.get("line_index"),
-    #             "texto_linea": pl.get("text"),
-    #             "chords": pl.get("chords", [])
-    #         })
-
-    #     # Detectar tonalidad (opcional)
-    #     probable_key = self._detect_tonality_from_text(text)
-
-    #     # Guardar la letra "plana" (sin modificar) y los acordes estructurados
-    #     return {
-    #         'titulo': title,
-    #         'artista': 'Desconocido',
-    #         'letra': text.strip(),
-    #         'tono_original': probable_key,
-    #         # guardamos como JSON serializado; tu repositorio puede querer dict directo
-    #         'acordes': acordes_struct, # json.dumps(acordes_struct, ensure_ascii=False),
-    #         'estado': 'pendiente',
-    #         'categoria_id': 1,
-    #         'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
-    #     }
-
-
+    
     def _detect_tonality_from_text(self, text: str) -> str:
         """Detección simplificada de tonalidad (opcional)"""
         # Buscar indicios de tonalidad en el texto
@@ -907,49 +883,6 @@ class FileProcessor:
     def _format_structured_lyrics(self, text: str) -> str:
         """Formatear letra en formato estructurado (ya está bien formateada)"""
         return text
-
-    # def _format_unstructured_lyrics(self, text: str) -> str:
-    #     """Formatear letra en formato no estructurado para mejor visualización"""
-    #     lines = text.split('\n')
-    #     formatted_lines = []
-    #     i = 0
-        
-    #     while i < len(lines):
-    #         line = lines[i].strip()
-    #         if not line:
-    #             i += 1
-    #             continue
-                
-    #         # Detectar si es línea de acordes
-    #         if self._is_chord_line(line):
-    #             chord_line = line
-    #             lyric_line = ""
-                
-    #             # Buscar línea de letra siguiente
-    #             if i + 1 < len(lines):
-    #                 next_line = lines[i + 1].strip()
-    #                 if (next_line and 
-    #                     not self._is_chord_line(next_line) and 
-    #                     not self._is_section_line(next_line)):
-    #                     lyric_line = next_line
-    #                     i += 1  # Saltar la línea de letra ya que la procesamos
-                
-    #             # Formatear como línea estructurada
-    #             formatted_line = self._combine_chords_and_lyrics(chord_line, lyric_line)
-    #             formatted_lines.append(formatted_line)
-                
-    #         # Detectar secciones (líneas en mayúsculas o con patrones)
-    #         elif self._is_section_line(line):
-    #             formatted_lines.append(f"\n[{line}]")
-                
-    #         # Línea de letra normal
-    #         else:
-    #             formatted_lines.append(line)
-                
-    #         i += 1
-        
-    #     return '\n'.join(formatted_lines)
-
         
     def _is_section_line(self, line: str) -> bool:
         """Determinar si una línea es una sección (como estrofa, coro)"""
@@ -1133,24 +1066,33 @@ class FileProcessor:
         chord_count = {}
         for chord in chords:
             # Extraer la nota base (primera letra)
-            base_note = chord[0].upper() if chord else 'C'
-            chord_count[base_note] = chord_count.get(base_note, 0) + 1
+            if chord and chord[0].upper() in 'CDEFGAB':
+                base_note = chord[0].upper()
+                chord_count[base_note] = chord_count.get(base_note, 0) + 1
+        
+        # Si no hay acordes válidos, fallback a C
+        if not chord_count:
+            return 'C'
         
         # Tonalidades más comunes en música cristiana (orden de probabilidad)
-        common_keys = ['G', 'C', 'D', 'A', 'F', 'E', 'Bb', 'Eb']
+        # C es la más común, luego G, luego D, etc.
+        common_keys = ['C', 'G', 'D', 'A', 'F', 'E', 'Bb', 'Eb', 'Am', 'Dm', 'Em']
         
-        # Buscar la tonalidad más probable
-        for key in common_keys:
-            base_note = key[0].upper()  # Extraer solo la nota base (G, C, D, etc.)
-            if base_note in chord_count:
-                return key
+        # Buscar la tonalidad más probable basada en frecuencia y orden común
+        most_common_note = max(chord_count.items(), key=lambda x: x[1])[0]
         
-        # Fallback al acorde más común
-        if chord_count:
-            most_common = max(chord_count.items(), key=lambda x: x[1])[0]
-            return most_common
+        # Priorizar C sobre G si están cerca en frecuencia
+        c_count = chord_count.get('C', 0)
+        g_count = chord_count.get('G', 0)
         
-        return 'C'
+        # Si C y G tienen conteos similares, priorizar C
+        if c_count > 0 and (c_count >= g_count or (c_count == g_count and most_common_note == 'C')):
+            return 'C'
+        elif g_count > 0:
+            return 'G'
+        
+        # Si no hay C o G claros, usar el más común
+        return most_common_note
         
     def process_files_batch(self, file_paths: List[str], options: Dict = None) -> Dict:
         """
@@ -1396,7 +1338,7 @@ class FileProcessor:
                 continue
 
             # Si la línea es de acordes y hay una siguiente con letra
-            if is_chord_line(line) and i + 1 < n and not is_chord_line(lines[i + 1]):
+            if self._is_chord_line(line) and i + 1 < n and not self._is_chord_line(lines[i + 1]):
                 chord_line = line
                 lyric_line = lines[i + 1]
 
@@ -1446,7 +1388,7 @@ class FileProcessor:
         chord_out = list(" " * max_len)
 
         # encontramos tokens (cualquier secuencia non-space en chord_line)
-        for m in _CHORD_TOKEN_RE.finditer(chord_line):
+        for m in CHORD_TOKEN_RE.finditer(chord_line):
             token = m.group(0)
             start = m.start()
             end = m.end()
