@@ -544,6 +544,9 @@ class ImportModule:
         self.update_progress_label()
         
         # Procesar directamente (sin thread)
+        print ("===============================================================")
+        print ("✅ Iniciando procesamiento directo de archivos...")
+        print ("===============================================================")
         self.process_files_direct()
 
     def process_files_direct(self):
@@ -571,7 +574,11 @@ class ImportModule:
                 
                 # Procesar archivo individual
                 file_result = self.file_processor._process_single_file(file_path, options)
+                print ("===============================================================")
+                print ("✅ ✅ Archivo procesado: ✅ ✅ ")
+                print ("===============================================================")
                 print(f"Resultado procesamiento {file_info['name']}: {file_result}")
+                print ("===============================================================")
                                 
                 if file_result['success']:
                     songs_found = file_result.get('songs_found', [])
