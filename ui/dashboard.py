@@ -46,16 +46,16 @@ class Dashboard:
         self.create_main_stats()
         
         # Gráficos y visualizaciones
-        self.create_charts_section()
+        # self.create_charts_section()
         
         # Accesos rápidos avanzados
         self.create_advanced_quick_actions()
         
         # Progreso de tareas
-        self.create_tasks_progress()
+        #self.create_tasks_progress()
         
         # Actividad reciente mejorada
-        self.create_enhanced_recent_activity()
+        #self.create_enhanced_recent_activity()
         
         # Estado del sistema
         self.create_system_status()
@@ -475,29 +475,6 @@ class Dashboard:
             ttk.Label(item_frame, text=component, font=('Arial', 9)).pack(anchor="w")
             ttk.Label(item_frame, text=status, font=('Arial', 9), foreground=color).pack(anchor="w")
             
-    # def load_real_stats(self):
-    #     """Cargar estadísticas reales desde la API"""
-    #     try:
-    #         # Obtener estadísticas desde la API
-    #         stats_api = self.db.get_estadisticas()
-            
-    #         if stats_api:
-    #             return {
-    #                 'total_songs': stats_api.get('total_canciones', 0),
-    #                 'pending_review': stats_api.get('pendientes_revision', 0),
-    #                 'this_week': stats_api.get('canciones_semana', 0),
-    #                 'categories': stats_api.get('total_categorias', 0),
-    #                 'total_imports': stats_api.get('total_importaciones', 0),
-    #                 'total_exports': stats_api.get('total_exportaciones', 0)
-    #             }
-    #         else:
-    #             # Si falla la API, usar datos por defecto
-    #             return self.load_fallback_stats()
-                
-    #     except Exception as e:
-    #         print(f"Error cargando estadísticas: {e}")
-    #         return self.load_fallback_stats()
-
     def load_real_stats(self):
         """Cargar estadísticas reales desde la BD"""
         try:

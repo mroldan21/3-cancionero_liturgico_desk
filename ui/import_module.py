@@ -9,9 +9,11 @@ class ImportModule:
     def __init__(self, parent, app):
         self.parent = parent
         self.app = app
+        self.db = app.database
         self.selected_files = []
         self.processing = False
         self.imported_songs = []  # Add storage for imported songs
+        self.categories = []
 
         # Inicializar procesador de archivos
         self.file_processor = FileProcessor(app.database)
@@ -41,6 +43,7 @@ class ImportModule:
         
         # Botones de acción
         self.create_action_buttons()
+        self.load_categories()
 
     def on_processing_progress(self, message, percent=None):
         """Callback para actualizar progreso del procesamiento"""
@@ -140,8 +143,8 @@ class ImportModule:
         self.source_type = tk.StringVar(value="pdf")
 
         source_types = [
-            ("📄 PDF (Una canción por archivo)", "pdf"),
-            ("🖼️ Imágenes (OCR)", "image"), 
+            ("📄 PDF/DOCX (Una canción por archivo)", "pdf"),
+            # ("🖼️ Imágenes (OCR)", "image"), 
             ("📝 Texto Plano", "text")
         ]
         
@@ -153,26 +156,43 @@ class ImportModule:
                           command=self.on_source_change).pack(side=tk.LEFT, padx=15)
         
         # Opciones de procesamiento
-        process_frame = ttk.Frame(config_frame)
-        process_frame.pack(fill=tk.X, pady=10)
+        #process_frame = ttk.Frame(config_frame)
+        #process_frame.pack(fill=tk.X, pady=10)
         
         self.auto_detect = tk.BooleanVar(value=True)
-        ttk.Checkbutton(process_frame, 
+        ttk.Checkbutton(source_frame, 
                        text="Detección automática de estructura",
                        variable=self.auto_detect,
                        style="TCheckbutton").pack(side=tk.LEFT, padx=10)
         
         self.auto_chords = tk.BooleanVar(value=True)
-        ttk.Checkbutton(process_frame,
+        ttk.Checkbutton(source_frame,
                        text="Identificación automática de acordes",
                        variable=self.auto_chords,
                        style="TCheckbutton").pack(side=tk.LEFT, padx=10)
         
         self.auto_categories = tk.BooleanVar(value=True)
-        ttk.Checkbutton(process_frame,
-                       text="Sugerir categorías",
-                       variable=self.auto_categories,
-                       style="TCheckbutton").pack(side=tk.LEFT, padx=10)
+        # ttk.Checkbutton(process_frame,
+        #                text="Sugerir categorías",
+        #                variable=self.auto_categories,
+        #                style="TCheckbutton").pack(side=tk.LEFT, padx=10)
+
+        # Categoría
+        #category_frame = ttk.Frame(config_frame)
+        #category_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(source_frame, text="Categoría:", style="Normal.TLabel").pack(side=tk.LEFT, padx=5)
+        self.category_var = tk.StringVar(value="General")
+        self.category_combo = ttk.Combobox(source_frame,
+                                         textvariable=self.category_var,
+                                         values=self.categories or ["General"],
+                                         state="readonly",
+                                         width=12)
+        self.category_combo.pack(side=tk.LEFT, padx=5)
+
+        # Set default value
+        if self.categories:
+            self.category_combo.set(self.categories[0])
         
         # Opciones específicas por tipo
         self.specific_options_frame = ttk.Frame(config_frame)
@@ -182,6 +202,21 @@ class ImportModule:
     def on_source_change(self):
         """Actualizar opciones cuando cambia el tipo de origen"""
         self.update_specific_options()
+
+    def load_categories(self):
+        """Cargar categorías desde la BD"""
+        try:
+            print("📂 Cargando categorías...")
+            categories = self.db.get_categorias()
+            if categories:
+                self.categories = [cat.get('nombre', '') for cat in categories if cat.get('nombre')]
+                print(f"✅ Categorías cargadas: {self.categories}")
+                
+                # Actualizar combobox si existe
+                self.category_combo['values'] = self.categories
+        except Exception as e:
+            print(f"❌ Error cargando categorías: {e}")
+            self.categories = ["General"]
         
     def update_specific_options(self):
         """Actualizar opciones específicas según el tipo seleccionado"""
@@ -557,7 +592,7 @@ class ImportModule:
             # Configurar opciones de procesamiento
             options = {
                 'use_pdfplumber': True,
-                'auto_detect_structure': self.auto_detect.get(),
+                #'auto_detect_structure': self.auto_detect.get(),
                 'extract_chords': self.auto_chords.get()
             }
             
