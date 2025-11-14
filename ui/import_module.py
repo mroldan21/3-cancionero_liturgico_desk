@@ -585,8 +585,16 @@ class ImportModule:
                     print(f"Canciones encontradas en {file_info['name']}: {len(songs_found)}")
 
                     if songs_found:
+                        # ✅ MARCAR CADA CANCIÓN ANTES DE AGREGARLA
+                        for song in songs_found:
+                            song['estado'] = 'pendiente'
+                            song['fuente'] = 'importacion_pdf'
+                            song['archivo_origen'] = file_info['name']
+                            print(f"   ✅ Marcada: {song.get('titulo', 'Sin título')}")
+                        
+                        # Ahora sí agregar a la lista
                         all_songs.extend(songs_found)
-                        print(f"✅ Canciones agregadas de {file_info['name']}")
+                        print(f"✅ {len(songs_found)} canciones agregadas de {file_info['name']}")
 
                         # Actualizar estado en treeview
                         self.update_file_status(file_info['name'], '✅ Completado')
@@ -597,21 +605,15 @@ class ImportModule:
                     self.update_file_status(file_info['name'], '❌ Error')
                     print(f"Error procesando {file_info['name']}: {file_result.get('error')}")
                 
-                # Pequeña pausa para que la UI se aktualice
+                # Pequeña pausa para que la UI se actualice
                 self.parent.update()
             
             # Guardar canciones encontradas
             if all_songs:
-                # Preparar canciones
-                for song in all_songs:
-                    song['estado'] = 'pendiente'
-                    song['fuente'] = 'importacion_pdf'
-                
-                # Guardar en BD y almacenar localmente
+                # Guardar en BD (ya están todas marcadas)
                 print("Guardando canciones encontradas en la base de datos...")
                 print(f"Número total de canciones a guardar: {len(all_songs)}")
-                print(f"Primeras canciones: {all_songs[:3]}")  # Mostrar primeras 3 canciones para depuración
-                print(f"contenido de la primera canción: {all_songs[0]}")  # Mostrar contenido de la primera canción
+                print(f"Primera canción - estado: {all_songs[0].get('estado')}, fuente: {all_songs[0].get('fuente')}")
                 
                 save_results = self.file_processor.save_songs_to_database(all_songs)
                 self.imported_songs = all_songs  # Guardar referencia local
@@ -622,10 +624,9 @@ class ImportModule:
                 
                 if messagebox.askyesno("Procesamiento Completado", 
                                     f"Se encontraron {len(all_songs)} canciones. ¿Quieres revisarlas en el editor ahora?"):
-                    # Primero mostrar el editor
+                    # Mostrar editor y cargar canciones
                     self.app.show_editor()
-                    # Luego intentar navegar con un pequeño delay
-                    self.parent.after(100, lambda: self._navigate_to_editor(0))
+                    self.parent.after(100, self._load_songs_in_editor)
             else:
                 # Indicar que no se encontraron canciones para procesar
                 self.progress_var.set(100)
@@ -637,6 +638,21 @@ class ImportModule:
             self.processing = False
             messagebox.showerror("Error", f"Ocurrió un error durante el procesamiento: {e}")
             print(f"Error en process_files_direct: {e}")
+
+
+    def _load_songs_in_editor(self):
+        """Cargar canciones en el editor después de abrirlo"""
+        try:
+            if hasattr(self.app, 'editor') and self.app.editor:
+                print(f"✅ Cargando {len(self.imported_songs)} canciones en el editor...")
+                self.app.editor.load_categories()
+                self.app.editor.load_imported_songs(self.imported_songs)
+                self.imported_songs = []  # Limpiar después de cargar
+                print("✅ Canciones cargadas en el editor")
+            else:
+                print("⚠️  Editor no disponible")
+        except Exception as e:
+            print(f"❌ Error cargando canciones: {e}")
 
     def _navigate_to_editor(self, retry_count=0):
         """Navegar al editor con las canciones importadas de forma segura"""

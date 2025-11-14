@@ -155,12 +155,14 @@ class FileProcessor:
     def _normalize_traditional_to_american(self, chord: str) -> str:
         """
         Normalizar acordes tradicionales (DO, RE, MI...) a americana (C, D, E...)
-        Preserva sufijos completos (7, m7, maj7, etc.)
+        Preserva sufijos completos y capitalización correcta (Cm, C7, Cmaj7)
         """
         if not chord:
             return chord
-            
-        chord_upper = chord.strip().upper()
+        
+        # NO convertir todo a mayúsculas aún, preservar case original
+        chord = chord.strip()
+        chord_upper = chord.upper()
         
         # 1. Intentar coincidencia exacta en el diccionario
         if chord_upper in TRAD_TO_AMERICAN:
@@ -170,16 +172,33 @@ class FileProcessor:
         for trad_root in TRAD_ROOTS:
             if chord_upper.startswith(trad_root):
                 # Extraer sufijo completo (todo después de la raíz)
-                suffix = chord_upper[len(trad_root):]
+                suffix_upper = chord_upper[len(trad_root):]
                 american_root = TRAD_TO_AMERICAN[trad_root]
                 
-                # Normalizar 'M' a 'm' solo si es menor (no MAJ)
-                if suffix and suffix[0] == 'M' and not suffix.startswith('MAJ'):
-                    suffix = 'm' + suffix[1:]
+                # Normalizar sufijo preservando case correcto
+                if suffix_upper:
+                    # 'm' o 'M' al inicio -> acorde menor (usar 'm' minúscula)
+                    if suffix_upper[0] == 'M' and not suffix_upper.startswith('MAJ'):
+                        suffix = 'm' + suffix_upper[1:].lower()
+                    # 'maj' o 'MAJ' -> usar 'maj' minúscula
+                    elif suffix_upper.startswith('MAJ'):
+                        suffix = 'maj' + suffix_upper[3:].lower()
+                    # 'min' o 'MIN' -> usar 'min' minúscula
+                    elif suffix_upper.startswith('MIN'):
+                        suffix = 'min' + suffix_upper[3:].lower()
+                    # Otros sufijos (números, #, b) -> lowercase
+                    else:
+                        suffix = suffix_upper.lower()
+                else:
+                    suffix = ''
                 
                 return american_root + suffix
         
-        # 3. Si no es tradicional, devolver original (puede ser ya americana)
+        # 3. Si no es tradicional, devolver con capitalización estándar
+        # Primera letra mayúscula, resto minúscula (C, Dm, F#)
+        if len(chord_upper) > 0 and chord_upper[0] in 'ABCDEFG':
+            return chord_upper[0] + chord_upper[1:].lower()
+        
         return chord_upper
     
     def _looks_like_chord(self, token: str) -> bool:
@@ -247,38 +266,41 @@ class FileProcessor:
         # Debe tener al menos 1 acorde válido
         return chord_count > 0
 
-
     def _is_valid_chord_token(self, token: str) -> bool:
-        """Determinar si un token es un acorde válido (versión más estricta)"""
+        """
+        Determinar si un token es un acorde válido.
+        Aplica primero patrones positivos, luego heurísticas de rechazo.
+        """
         token = token.strip()
         if not token or len(token) > 10:
             return False
         
-        # CRÍTICO: Rechazar palabras comunes que no son acordes
-        # Lista de palabras que NUNCA son acordes
-        non_chords = {
-            'ESTA', 'ES', 'LA', 'DE', 'EL', 'Y', 'A', 'EN', 'CON', 'POR', 'PARA',
-            'QUE', 'SU', 'TU', 'MI', 'SE', 'LO', 'UN', 'UNA', 'LOS', 'LAS',
-            'DEL', 'AL', 'YO', 'TE', 'ME', 'NOS', 'OS', 'LE', 'LES',
-            'SEÑOR', 'CRISTO', 'DIOS', 'JESUS', 'MARIA', 'SANTO', 'SANTA',
-            'BAUTIZAME', 'LUZ', 'AGUA', 'AMOR', 'VIDA', 'PAZ', 'GLORIA'
-        }
+        token_upper = token.upper()
         
-        if token.upper() in non_chords:
-            return False
-        
-        # Usar regex global para acordes americanos
+        # 1. Validar acordes americanos (A-G)
         if ANGLO_CHORD_RE.match(token):
             return True
         
-        # Verificar si coincide con patrón tradicional
-        token_upper = token.upper()
+        # 2. Validar acordes tradicionales (DO, RE, MI, FA, SOL, LA, SI)
         for trad_root in TRAD_ROOTS:
             if token_upper.startswith(trad_root):
-                # Validar que el sufijo sea válido
                 suffix = token_upper[len(trad_root):]
-                if not suffix or re.match(r'^[#b]?[mM]?(aj|in|im)?\d*$', suffix):
+                if not suffix or re.match(r'^[#b♯♭]?[mM]?(aj|in|im)?\d*$', suffix):
                     return True
+        
+        # 3. HEURÍSTICA: Palabras >6 letras raramente son acordes
+        #    (excepto casos como "Cmaj7" que ya pasaron el filtro 1)
+        if len(token) > 6:
+            return False
+        
+        # 4. Rechazar palabras comunes conocidas (reducida, solo ambiguas)
+        non_chords = {
+            'ESTA', 'ES', 'PARA', 'QUE', 'CON', 'POR', 'SEÑOR', 'DIOS',
+            'JESUS', 'CRISTO', 'MARIA', 'SANTO', 'LUZ', 'AMOR', 'VIDA'
+        }
+        
+        if token_upper in non_chords:
+            return False
         
         return False
     
