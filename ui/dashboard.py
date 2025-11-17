@@ -299,33 +299,33 @@ class Dashboard:
             self.create_tooltip(btn, tooltip)
             
         # Segunda fila de acciones secundarias
-        secondary_actions_frame = ttk.Frame(actions_frame, style="TFrame")
-        secondary_actions_frame.pack(fill=tk.X, pady=5)
+        # secondary_actions_frame = ttk.Frame(actions_frame, style="TFrame")
+        # secondary_actions_frame.pack(fill=tk.X, pady=5)
         
-        secondary_actions = [
-            ("📤 Exportar JSON", self.export_json, "Exportar para app móvil", "#E74C3C"),
-            ("🎵 Transponer Lote", self.batch_transpose, "Transposición masiva", "#1ABC9C"),
-            ("🔍 Buscar/Reemplazar", self.batch_find_replace, "Buscar y reemplazar masivo", "#34495E"),
-            ("📋 Reportes", self.generate_reports, "Generar reportes detallados", "#D35400")
-        ]
+        # secondary_actions = [
+        #     ("📤 Exportar JSON", self.export_json, "Exportar para app móvil", "#E74C3C"),
+        #     ("🎵 Transponer Lote", self.batch_transpose, "Transposición masiva", "#1ABC9C"),
+        #     ("🔍 Buscar/Reemplazar", self.batch_find_replace, "Buscar y reemplazar masivo", "#34495E"),
+        #     ("📋 Reportes", self.generate_reports, "Generar reportes detallados", "#D35400")
+        # ]
         
-        for i, (text, command, tooltip, color) in enumerate(secondary_actions):
-            btn_frame = ttk.Frame(secondary_actions_frame, style="TFrame")
-            btn_frame.grid(row=0, column=i, padx=5, pady=5, sticky="nsew")
-            secondary_actions_frame.columnconfigure(i, weight=1)
+        # for i, (text, command, tooltip, color) in enumerate(secondary_actions):
+        #     btn_frame = ttk.Frame(secondary_actions_frame, style="TFrame")
+        #     btn_frame.grid(row=0, column=i, padx=5, pady=5, sticky="nsew")
+        #     secondary_actions_frame.columnconfigure(i, weight=1)
             
-            btn = tk.Button(btn_frame, 
-                          text=text,
-                          command=command,
-                          bg=color,
-                          fg="white",
-                          font=('Arial', 9),
-                          relief="raised",
-                          bd=1,
-                          padx=8,
-                          pady=6)
-            btn.pack(fill=tk.BOTH, expand=True)
-            self.create_tooltip(btn, tooltip)
+        #     btn = tk.Button(btn_frame, 
+        #                   text=text,
+        #                   command=command,
+        #                   bg=color,
+        #                   fg="white",
+        #                   font=('Arial', 9),
+        #                   relief="raised",
+        #                   bd=1,
+        #                   padx=8,
+        #                   pady=6)
+        #     btn.pack(fill=tk.BOTH, expand=True)
+        #     self.create_tooltip(btn, tooltip)
         
     def create_tasks_progress(self):
         """Crear sección de progreso de tareas"""
