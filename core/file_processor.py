@@ -564,13 +564,14 @@ class FileProcessor:
                 # Preparar datos para la BD
                 song_data = {
                     'titulo': song['titulo'],
-                    'artista': song['artista'],
-                    'letra': song['letra'],
-                    'tono_original': song.get('tono_original', 'C'),
+                    'autor': song.get('artista', 'Desconocido'),
+                    'letra_con_acordes': song['letra'],
+                    'tonalidad_original': song.get('tono_original', 'C'),
                     'bpm': song.get('bpm'),
                     'categoria_id': song.get('categoria_id', 1),
-                    'estado': 'pendiente',
-                    'notas': song.get('notas', 'Importado desde PDF')
+                    'estado': song.get('estado', 'pendiente'),
+                    'fuente': song.get('fuente', 'importacion'),
+                    'notas': song.get('notas', f"Importado desde {song.get('archivo_origen', 'archivo')}")
                 }
                 
                 # Guardar en BD
