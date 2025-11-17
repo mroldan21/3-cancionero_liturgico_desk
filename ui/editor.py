@@ -163,6 +163,10 @@ class Editor:
             
             # self.create_tools_panel()
             # print("✅ Panel de herramientas creado")
+            # ⬇️ AGREGAR ESTAS LÍNEAS ⬇️
+            # Inicializar chords_listbox para evitar errores
+            self.chords_listbox = None
+            print("✅ Chords listbox inicializado")
             
             print("✅ Setup_ui completado exitosamente")
             
@@ -876,7 +880,8 @@ class Editor:
             
     def update_chords_list(self):
         """Actualizar lista de acordes utilizados"""
-        if not self.chords_listbox:
+        if not hasattr(self, 'chords_listbox') or self.chords_listbox is None:
+            print("⚠️ chords_listbox no está inicializado, saltando actualización")
             return
             
         self.chords_listbox.delete(0, tk.END)
