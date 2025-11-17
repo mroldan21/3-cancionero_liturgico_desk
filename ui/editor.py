@@ -889,7 +889,7 @@ class Editor:
                 'estado': 'borrador',
                 'tempo_bpm': int(self.tempo_var.get() or 0),
                 'posicion_capo': int(self.capo_var.get() or 0),
-                'categorias': self.selected_categories,  # NUEVA LÍNEA
+                'categoria_ids': self.get_categoria_ids(self.selected_categories),  # NUEVA LÍNEA
                 'version': self.current_song.get('version', 1)
             }
             
@@ -919,6 +919,16 @@ class Editor:
             print(f"Tipo de error: {type(e)}")
             print(f"Detalles del error: {str(e)}")
             messagebox.showerror("Error", f"Error guardando borrador: {e}")
+    
+    def get_categoria_ids(self, categoria_nombres):
+        """Convertir nombres de categorías a IDs"""
+        ids = []
+        for nombre in categoria_nombres:
+            for cat in self.app.database.get_categorias():
+                if cat.get('nombre') == nombre:
+                    ids.append(cat.get('id'))
+                    break
+        return ids
 
     def approve_and_publish(self):
         """Aprobar y publicar canción"""
@@ -951,7 +961,7 @@ class Editor:
                 'tempo_bpm': int(self.tempo_var.get() or 0),
                 'posicion_capo': int(self.capo_var.get() or 0),
                 'version': int(self.current_song.get('version', 1)) + 1,
-                'categorias': self.selected_categories,  # NUEVA LÍNEA
+                'categoria_ids': self.get_categoria_ids(self.selected_categories)  # NUEVA LÍNEA
             }
             
             print("\n📤 DEBUG - Datos a enviar al servidor:")
