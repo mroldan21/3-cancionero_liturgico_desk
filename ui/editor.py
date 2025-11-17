@@ -742,7 +742,7 @@ class Editor:
                 'autor': self.artist_entry.get().strip(),
                 'letra_con_acordes': self.text_editor.get(1.0, tk.END).strip(),
                 'tonalidad_original': self.key_combo.get(),
-                'activo': 1 if self.current_song.get('estado') == 'activo' else 0,
+                'estado': 'borrador',  # Guardar como borrador
                 'tempo_bpm': int(self.tempo_var.get() or 0),
                 'posicion_capo': int(self.capo_var.get() or 0),
                 'version': self.current_song.get('version', 1)
@@ -802,7 +802,7 @@ class Editor:
                 'autor': self.artist_entry.get().strip(),
                 'letra_con_acordes': self.text_editor.get(1.0, tk.END).strip(),
                 'tonalidad_original': self.key_combo.get(),
-                'activo': 1,
+                'estado': 'aprobado', # Marcar como aprobado
                 'tempo_bpm': int(self.tempo_var.get() or 0),
                 'posicion_capo': int(self.capo_var.get() or 0),
                 'version': int(self.current_song.get('version', 1)) + 1
@@ -830,8 +830,16 @@ class Editor:
             if result.get('success'):
                 messagebox.showinfo("Éxito", "Canción aprobada y publicada")
                 # Remover de la lista de pendientes y recargar
-                self.songs_pending_review.pop(self.current_song_index)
-                self.load_pending_songs()
+                if self.current_song_index < len(self.songs_pending_review):
+                    self.songs_pending_review.pop(self.current_song_index)
+                    self.update_songs_list()
+                    # Cargar la siguiente canción o limpiar si no hay más
+                    if self.songs_pending_review:
+                        # Asegurarse de no exceder el nuevo límite de la lista
+                        next_index = min(self.current_song_index, len(self.songs_pending_review) - 1)
+                        self.load_song(next_index)
+                    else:
+                        self.clear_editor()
             else:
                 messagebox.showerror("Error", "Error al publicar la canción")
                 
@@ -871,5 +879,11 @@ class Editor:
         self.key_combo.set('C')
         self.category_combo.set('')
         self.text_editor.delete(1.0, tk.END)
+        self.current_song = None
+        self.current_song_index = -1
+        self.update_song_counter()
         if hasattr(self, 'chords_listbox'):
             self.chords_listbox.delete(0, tk.END)
+        if hasattr(self, 'validation_tree'):
+            for item in self.validation_tree.get_children():
+                self.validation_tree.delete(item)
