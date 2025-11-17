@@ -161,8 +161,8 @@ class Editor:
             self.create_main_panels()
             print("✅ Paneles principales creados")
             
-            self.create_tools_panel()
-            print("✅ Panel de herramientas creado")
+            # self.create_tools_panel()
+            # print("✅ Panel de herramientas creado")
             
             print("✅ Setup_ui completado exitosamente")
             
@@ -344,7 +344,7 @@ class Editor:
         self.filter_inactivo.set(False)
         self.load_pending_songs()
         
-    def create_editor_panel(self, parent):
+    def create_editor_panel1(self, parent):
         """Crear panel del editor"""
         editor_frame = ttk.LabelFrame(parent,
                                     text="📝 Editor de Canción", 
@@ -354,6 +354,30 @@ class Editor:
         self.create_quick_metadata(editor_frame)
         self.create_text_editor(editor_frame)
         self.create_action_buttons(editor_frame)
+
+    def create_editor_panel(self, parent):
+        """Crear panel del editor con división ajustable"""
+        editor_frame = ttk.LabelFrame(parent,
+                                    text="📝 Editor de Canción", 
+                                    padding=15)
+        editor_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Usar PanedWindow vertical
+        paned = ttk.PanedWindow(editor_frame, orient=tk.VERTICAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+        
+        # Panel superior: metadatos + editor
+        top_frame = ttk.Frame(paned)
+        paned.add(top_frame, weight=4)
+        
+        self.create_quick_metadata(top_frame)
+        self.create_text_editor(top_frame)
+        
+        # Panel inferior: botones de acción
+        bottom_frame = ttk.Frame(paned)
+        paned.add(bottom_frame, weight=0)
+        
+        self.create_action_buttons(bottom_frame)
         
     def create_quick_metadata(self, parent):
         """Crear sección de metadatos rápidos"""
@@ -395,11 +419,30 @@ class Editor:
                 command=self.edit_categories,
                 style="Info.TButton").pack(side=tk.LEFT, padx=(5, 0))
 
-        # Tempo y Capo
+        # Tempo (BPM) con Tap Tempo
         ttk.Label(meta_frame, text="Tempo (BPM):", style="Normal.TLabel").grid(row=2, column=0, sticky="w", pady=2)
-        self.tempo_spin = tk.Spinbox(meta_frame, from_=40, to=300, textvariable=self.tempo_var, width=8)
-        self.tempo_spin.grid(row=2, column=1, sticky="w", pady=2, padx=(10, 20))
+        
+        tempo_frame = ttk.Frame(meta_frame, style="TFrame")
+        tempo_frame.grid(row=2, column=1, sticky="w", pady=2, padx=(10, 20))
+        
+        self.tempo_spin = tk.Spinbox(tempo_frame, from_=40, to=300, textvariable=self.tempo_var, width=8)
+        self.tempo_spin.pack(side=tk.LEFT)
+        
+        # Botón Tap Tempo
+        self.tap_button = ttk.Button(tempo_frame,
+                                    text="🎵 Tap",
+                                    command=self.tap_tempo,
+                                    style="Info.TButton",
+                                    width=6)
+        self.tap_button.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Label para feedback visual
+        self.tap_feedback = ttk.Label(tempo_frame, 
+                                    text="",
+                                    style="Secondary.TLabel")
+        self.tap_feedback.pack(side=tk.LEFT, padx=(5, 0))
 
+        # Capo
         ttk.Label(meta_frame, text="Capo:", style="Normal.TLabel").grid(row=2, column=2, sticky="w", pady=2)
         self.capo_spin = tk.Spinbox(meta_frame, from_=0, to=12, textvariable=self.capo_var, width=8)
         self.capo_spin.grid(row=2, column=3, sticky="w", pady=2, padx=(10, 0))
@@ -407,26 +450,33 @@ class Editor:
         meta_frame.columnconfigure(1, weight=1)
         meta_frame.columnconfigure(3, weight=1)
         
+        # Inicializar variables para tap tempo
+        self.tap_times = []
+        self.tap_timeout = None
+        
+        # Bind barra espaciadora para tap tempo cuando el editor tiene foco
+        self.parent.bind('<space>', self.on_space_tap)
+        
     def create_text_editor(self, parent):
         """Crear área de edición de texto"""
         # Toolbar del editor
-        editor_toolbar = ttk.Frame(parent, style="TFrame")
-        editor_toolbar.pack(fill=tk.X, pady=(0, 10))
+        #editor_toolbar = ttk.Frame(parent, style="TFrame")
+        #editor_toolbar.pack(fill=tk.X, pady=(0, 10))
         
         # Botones de formato
-        format_buttons = [
-            ("🎼 Insertar Acorde", self.insert_chord),
-            ("📋 Estrofa", lambda: self.insert_section("VERSO")),
-            ("🎵 Coro", lambda: self.insert_section("CORO")),
-            ("📄 Puente", lambda: self.insert_section("PUENTE")),
-            ("🎹 Transponer", self.show_transpose_dialog)
-        ]
+        # format_buttons = [
+        #     ("🎼 Insertar Acorde", self.insert_chord),
+        #     ("📋 Estrofa", lambda: self.insert_section("VERSO")),
+        #     ("🎵 Coro", lambda: self.insert_section("CORO")),
+        #     ("📄 Puente", lambda: self.insert_section("PUENTE")),
+        #     ("🎹 Transponer", self.show_transpose_dialog)
+        # ]
         
-        for text, command in format_buttons:
-            ttk.Button(editor_toolbar,
-                      text=text,
-                      command=command,
-                      style="Info.TButton").pack(side=tk.LEFT, padx=2)
+        # for text, command in format_buttons:
+        #     ttk.Button(editor_toolbar,
+        #               text=text,
+        #               command=command,
+        #               style="Info.TButton").pack(side=tk.LEFT, padx=2)
         
         # Área de texto principal
         text_frame = ttk.Frame(parent)
@@ -435,6 +485,7 @@ class Editor:
         self.text_editor = scrolledtext.ScrolledText(text_frame,
                                                    wrap=tk.WORD,
                                                    font=('Courier New', 11),
+                                                   height=20,  # ← AGREGAR ALTURA FIJA
                                                    undo=True,
                                                    maxundo=-1)
         
@@ -1036,6 +1087,83 @@ class Editor:
             except Exception as e:
                 messagebox.showerror("Error", f"Error descartando canción: {e}")
                 
+    def tap_tempo(self, event=None):
+        """Registrar un tap y calcular BPM"""
+        import time
+        
+        current_time = time.time()
+        self.tap_times.append(current_time)
+        
+        # Mantener solo los últimos 8 taps (suficiente para calcular promedio)
+        if len(self.tap_times) > 8:
+            self.tap_times.pop(0)
+        
+        # Cancelar timeout anterior si existe
+        if self.tap_timeout:
+            self.parent.after_cancel(self.tap_timeout)
+        
+        # Resetear después de 2 segundos de inactividad
+        self.tap_timeout = self.parent.after(2000, self.reset_tap_tempo)
+        
+        # Calcular BPM si hay al menos 2 taps
+        if len(self.tap_times) >= 2:
+            # Calcular intervalos entre taps
+            intervals = []
+            for i in range(1, len(self.tap_times)):
+                interval = self.tap_times[i] - self.tap_times[i-1]
+                intervals.append(interval)
+            
+            # Promedio de intervalos
+            avg_interval = sum(intervals) / len(intervals)
+            
+            # Convertir a BPM (60 segundos / intervalo promedio)
+            bpm = round(60 / avg_interval)
+            
+            # Limitar rango razonable
+            bpm = max(40, min(300, bpm))
+            
+            # Actualizar valor
+            self.tempo_var.set(bpm)
+            
+            # Feedback visual
+            tap_count = len(self.tap_times)
+            self.tap_feedback.config(text=f"({tap_count} taps)")
+            self.tap_button.config(text=f"🎵 {bpm}")
+        else:
+            # Primer tap
+            self.tap_feedback.config(text="(Continúa...)")
+            self.tap_button.config(text="🎵 Tap")
+        
+        # Animación visual del botón
+        self.animate_tap_button()
+        
+        return "break"  # Evitar que la barra espaciadora inserte espacio en el texto
+
+    def on_space_tap(self, event):
+        """Manejar tap con barra espaciadora"""
+        # Solo si el editor de texto NO tiene el foco
+        if self.parent.focus_get() != self.text_editor:
+            self.tap_tempo(event)
+            return "break"
+        return None
+
+    def reset_tap_tempo(self):
+        """Resetear el tap tempo después de timeout"""
+        self.tap_times = []
+        self.tap_feedback.config(text="")
+        self.tap_button.config(text="🎵 Tap")
+        print("🔄 Tap tempo reseteado")
+
+    def animate_tap_button(self):
+        """Animación visual al hacer tap"""
+        original_style = self.tap_button.cget('style')
+        
+        # Cambiar temporalmente el estilo
+        self.tap_button.config(style="Success.TButton")
+        
+        # Volver al estilo original después de 100ms
+        self.parent.after(100, lambda: self.tap_button.config(style=original_style))
+
     def clear_editor(self):
         """Limpiar editor"""
         self.title_entry.delete(0, tk.END)
