@@ -166,6 +166,7 @@ class Editor:
             # ⬇️ AGREGAR ESTAS LÍNEAS ⬇️
             # Inicializar chords_listbox para evitar errores
             self.chords_listbox = None
+            self.validation_tree = None
             print("✅ Chords listbox inicializado")
             
             print("✅ Setup_ui completado exitosamente")
@@ -905,6 +906,24 @@ class Editor:
         
     def run_validation(self):
         """Ejecutar validación de la canción"""
+        if not hasattr(self, 'validation_tree') or self.validation_tree is None:
+            print("⚠️ validation_tree no está inicializado")
+            # Validar sin UI visual
+            titulo = self.title_entry.get().strip()
+            letra = self.text_editor.get(1.0, tk.END).strip()
+            
+            errors = []
+            if not titulo:
+                errors.append("El título es requerido")
+            if not letra or len(letra) < 10:
+                errors.append("La letra parece muy corta")
+            
+            if errors:
+                messagebox.showwarning("Validación", "\n".join(errors))
+                return False
+            return True
+        
+        # Código original continúa aquí...
         for item in self.validation_tree.get_children():
             self.validation_tree.delete(item)
             
@@ -924,6 +943,8 @@ class Editor:
             
         for tipo, mensaje, linea in validations:
             self.validation_tree.insert('', tk.END, values=(tipo, mensaje, linea))
+        
+        return len([v for v in validations if v[0] == 'Error']) == 0
             
     def save_draft(self):
         """Guardar como borrador"""
