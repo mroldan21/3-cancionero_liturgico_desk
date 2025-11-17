@@ -339,8 +339,8 @@ class ImportModule:
         # Área de vista previa
         self.preview_text = tk.Text(self.preview_frame, 
                                   height=7, 
-                                  wrap=tk.WORD,
-                                  font=('Courier', 10))
+                                  wrap=tk.NONE,
+                                  font=('Courier New', 10))
         
         preview_scrollbar = ttk.Scrollbar(self.preview_frame, 
                                         command=self.preview_text.yview)

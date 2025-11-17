@@ -128,7 +128,7 @@ class FileProcessor:
         self._update_progress(f"Procesando PDF: {os.path.basename(file_path)}", 10)
         
         try:
-            # Determinar método de procesamiento
+            # ⬇️ CAMBIO CRÍTICO: Siempre usar pdfplumber con reconstrucción ⬇️
             use_pdfplumber = PDFPLUMBER_SUPPORT and options.get('use_pdfplumber', True)
             
             if use_pdfplumber and PDFPLUMBER_SUPPORT:
@@ -140,9 +140,11 @@ class FileProcessor:
                     'success': False,
                     'error': 'No hay librerías PDF disponibles'
                 }
+            # ⬆️ FIN DEL CAMBIO ⬆️
                 
         except Exception as e:
-            self.logger.error(f"Error procesando PDF {file_path}: {e}")
+            if self.logger:
+                self.logger.error(f"Error procesando PDF {file_path}: {e}")
             return {
                 'success': False,
                 'error': f'Error procesando PDF: {str(e)}'
@@ -151,6 +153,53 @@ class FileProcessor:
 # ==============================================================================
 # PARTE 2: FUNCIONES DE NORMALIZACIÓN ACTUALIZADAS (usar constantes globales)
 # ==============================================================================
+    def _process_with_pdfplumber(self, file_path: str, options: Dict) -> Dict:
+        """Procesar PDF preservando mejor la estructura espacial"""
+        self._update_progress("Extrayendo texto completo del PDF...", 30)
+        print("Extrayendo texto completo del PDF...")
+        
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                total_pages = len(pdf.pages)
+                print(f"Extrayendo texto de {total_pages} páginas...")
+                self._update_progress(f"Extrayendo texto de {total_pages} páginas...", 40)
+                
+                # ⬇️ CAMBIO CRÍTICO: Usar _reconstruct_text_from_page ⬇️
+                full_text = ""
+                for page_num, page in enumerate(pdf.pages):
+                    # Reconstruir texto preservando espacios aplicando gaps entre caracteres
+                    page_text = self._reconstruct_text_from_page(page)
+                    full_text += page_text + "\n\n"  # Doble salto entre páginas
+                    
+                    progress = 40 + (page_num / total_pages) * 40
+                    self._update_progress(f"Página {page_num + 1}/{total_pages}", progress)
+                    print(f"Página {page_num + 1}/{total_pages}")
+                # ⬆️ FIN DEL CAMBIO ⬆️
+                
+                # Limpiar y normalizar el texto
+                cleaned_text = self._clean_extracted_text(full_text)
+                
+                # Crear UNA sola canción con todo el contenido
+                song = self._create_single_song_from_text(cleaned_text, file_path)
+                print("Contenido de la canción creado")
+                songs_found = [song] if song else []
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error con pdfplumber: {e}")
+            return {'success': False, 'error': f'Error pdfplumber: {str(e)}'}
+            
+        return {
+            'success': True,
+            'file_type': 'pdf',
+            'total_pages': total_pages,
+            'songs_found': songs_found,
+            'extracted_text': full_text,
+            'cleaned_text': cleaned_text,
+            'processed_with': 'pdfplumber_improved'
+        }
+
+
 
     def _normalize_traditional_to_american(self, chord: str) -> str:
         """
@@ -201,6 +250,95 @@ class FileProcessor:
         
         return chord_upper
     
+    def _reconstruct_text_from_page(self, page) -> str:
+        """
+        Reconstruir texto de una página usando page.chars para preservar
+        espacios proporcionales. Agrupa caracteres por línea (y0) y calcula
+        gaps entre caracteres para insertar espacios.
+        """
+        try:
+            chars = page.chars
+            if not chars:
+                return page.extract_text() or ""
+
+            # Agrupar por línea aproximando y0 (usar redondeo)
+            lines_map = {}
+            for ch in chars:
+                # redondear y0 a 1 decimal para agrupar caracteres en la misma línea
+                y_key = round(float(ch.get('top', ch.get('y0', 0))), 1)
+                lines_map.setdefault(y_key, []).append(ch)
+
+            # Ordenar líneas por coordenada vertical (de arriba hacia abajo)
+            sorted_lines = [lines_map[k] for k in sorted(lines_map.keys(), reverse=False)]
+            page_lines = []
+
+            for line_chars in sorted_lines:
+                # Ordenar caracteres por x0 (izquierda a derecha)
+                line_chars_sorted = sorted(line_chars, key=lambda c: float(c.get('x0', 0)))
+                
+                # Calcular ancho medio de carácter para referencia (mediana robusta)
+                widths = [float(c.get('x1', 0)) - float(c.get('x0', 0)) 
+                        for c in line_chars_sorted 
+                        if float(c.get('x1', 0)) - float(c.get('x0', 0)) > 0]
+                
+                if widths:
+                    widths_sorted = sorted(widths)
+                    m = len(widths_sorted) // 2
+                    if len(widths_sorted) % 2 == 1:
+                        avg_w = widths_sorted[m]
+                    else:
+                        avg_w = (widths_sorted[m - 1] + widths_sorted[m]) / 2.0
+                    # evitar valores extremos
+                    avg_w = max(2.0, min(avg_w, 40.0))
+                else:
+                    avg_w = 5.0
+
+                # Construir la línea insertando espacios proporcionalmente al gap
+                line_builder = ""
+                prev_x1 = None
+                
+                for ch in line_chars_sorted:
+                    x0 = float(ch.get('x0', 0))
+                    x1 = float(ch.get('x1', 0))
+                    txt = ch.get('text', '')
+
+                    if prev_x1 is None:
+                        # primer carácter, añadir texto directamente
+                        line_builder += txt
+                    else:
+                        gap = x0 - prev_x1
+                        # Si el propio carácter es un espacio real, respetarlo
+                        if txt.isspace():
+                            line_builder += txt
+                        else:
+                            # Umbrales conservadores para reducir espacios
+                            # gap <= 0.12*avg_w -> sin espacio
+                            # 0.12*avg_w < gap <= 0.35*avg_w -> 1 espacio no rompible
+                            # gap > 0.35*avg_w -> múltiplos reducidos de espacios
+                            if gap <= 0.12 * avg_w:
+                                line_builder += txt
+                            elif gap <= 0.35 * avg_w:
+                                line_builder += "\u00A0" + txt
+                            else:
+                                # reducir la cantidad de espacios usando divisor mayor
+                                spaces = max(1, int(gap / (1.8 * avg_w)))
+                                line_builder += ("\u00A0" * spaces) + txt
+
+                    prev_x1 = x1
+
+                # Agregar la línea reconstruida (preservando espacios finales)
+                page_lines.append(line_builder.rstrip("\n"))
+
+            # Unir líneas con salto de línea
+            return "\n".join(page_lines)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error reconstruyendo página: {e}")
+            print(f"⚠️ Error reconstruyendo página: {e}")
+            # Fallback al extract_text convencional
+            return page.extract_text() or ""
+        
     def _looks_like_chord(self, token: str) -> bool:
         """
         Determinar si un token parece ser un acorde musical
@@ -357,8 +495,19 @@ class FileProcessor:
             self._update_progress("Extrayendo texto desde Word...", 10)
             print("Extrayendo texto desde Word...(_process_docx_file)")
             doc = DocxDocument(file_path)
-            paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
-            full_text = "\n".join(paragraphs)
+            # paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
+            #full_text = "\n".join(paragraphs)
+            # ⬇️ IMPORTANTE: Preservar saltos de línea y tabulaciones ⬇️
+            full_text_lines = []
+            for paragraph in doc.paragraphs:
+                if paragraph.text:
+                    full_text_lines.append(paragraph.text)
+                else:
+                    full_text_lines.append("")  # Preservar líneas vacías
+            
+            full_text = "\n".join(full_text_lines)
+            # ⬆️ FIN DEL CAMBIO ⬆️
+            
             # Crear una "canción" única con el contenido
             song = self._create_single_song_from_text(full_text, file_path)
             return {

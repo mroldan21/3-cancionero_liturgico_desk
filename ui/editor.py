@@ -488,7 +488,7 @@ class Editor:
         text_frame.pack(fill=tk.BOTH, expand=True)
         
         self.text_editor = scrolledtext.ScrolledText(text_frame,
-                                                   wrap=tk.WORD,
+                                                   wrap=tk.NONE,
                                                    font=('Courier New', 11),
                                                    height=20,  # ← AGREGAR ALTURA FIJA
                                                    undo=True,
@@ -902,7 +902,7 @@ class Editor:
         
     def validate_song(self):
         """Validar canción actual"""
-        self.run_validation()
+        return self.run_validation()
         
     def run_validation(self):
         """Ejecutar validación de la canción"""
@@ -1014,12 +1014,11 @@ class Editor:
             return
             
         # Validar antes de publicar
-        self.validate_song()
-        validations = self.validation_tree.get_children()
+        validation_passed = self.validate_song()
         
-        if validations:
+        if not validation_passed:
             if not messagebox.askyesno("Advertencia", 
-                                     "Hay validaciones pendientes. ¿Continuar con la publicación?"):
+                                    "Hay errores de validación. ¿Continuar con la publicación?"):
                 return
         
         try:
