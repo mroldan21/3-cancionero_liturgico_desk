@@ -161,13 +161,9 @@ class Editor:
             self.create_main_panels()
             print("✅ Paneles principales creados")
             
-            # self.create_tools_panel()
-            # print("✅ Panel de herramientas creado")
-            # ⬇️ AGREGAR ESTAS LÍNEAS ⬇️
-            # Inicializar chords_listbox para evitar errores
-            self.chords_listbox = None
-            self.validation_tree = None
-            print("✅ Chords listbox inicializado")
+            # Panel de herramientas
+            self.create_tools_panel()
+            print("✅ Panel de herramientas creado")
             
             print("✅ Setup_ui completado exitosamente")
             
@@ -535,6 +531,7 @@ class Editor:
                                    padding=15)
         tools_frame.pack(fill=tk.X, pady=10)
         
+        # Pestañas para diferentes herramientas
         notebook = ttk.Notebook(tools_frame)
         notebook.pack(fill=tk.BOTH, expand=True)
         
@@ -550,6 +547,7 @@ class Editor:
         
     def create_chords_tab(self, parent):
         """Crear pestaña de gestión de acordes"""
+        # Lista de acordes utilizados
         chords_list_frame = ttk.LabelFrame(parent, text="Acordes en la Canción", padding=10)
         chords_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
@@ -560,6 +558,7 @@ class Editor:
         self.chords_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         chords_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
+        # Botones de acordes
         chords_btn_frame = ttk.Frame(parent, style="TFrame")
         chords_btn_frame.pack(fill=tk.X, pady=5)
         
@@ -570,6 +569,7 @@ class Editor:
         
     def create_validation_tab(self, parent):
         """Crear pestaña de validación"""
+        # Lista de validaciones
         self.validation_tree = ttk.Treeview(parent, columns=('tipo', 'mensaje', 'linea'), show='headings', height=6)
         self.validation_tree.heading('tipo', text='Tipo')
         self.validation_tree.heading('mensaje', text='Mensaje')
@@ -902,28 +902,11 @@ class Editor:
         
     def validate_song(self):
         """Validar canción actual"""
-        return self.run_validation()
+        self.run_validation()
         
     def run_validation(self):
         """Ejecutar validación de la canción"""
-        if not hasattr(self, 'validation_tree') or self.validation_tree is None:
-            print("⚠️ validation_tree no está inicializado")
-            # Validar sin UI visual
-            titulo = self.title_entry.get().strip()
-            letra = self.text_editor.get(1.0, tk.END).strip()
-            
-            errors = []
-            if not titulo:
-                errors.append("El título es requerido")
-            if not letra or len(letra) < 10:
-                errors.append("La letra parece muy corta")
-            
-            if errors:
-                messagebox.showwarning("Validación", "\n".join(errors))
-                return False
-            return True
-        
-        # Código original continúa aquí...
+        # Limpiar validaciones anteriores
         for item in self.validation_tree.get_children():
             self.validation_tree.delete(item)
             
@@ -932,19 +915,22 @@ class Editor:
         
         validations = []
         
+        # Validar título
         if not titulo:
             validations.append(('Error', 'El título es requerido', 0))
             
+        # Validar letra
         if not letra or len(letra) < 10:
             validations.append(('Advertencia', 'La letra parece muy corta', 0))
             
+        # Validar estructura
         if '[' not in letra or ']' not in letra:
             validations.append(('Advertencia', 'No se detectaron acordes o secciones', 0))
             
+        # Agregar validaciones
         for tipo, mensaje, linea in validations:
             self.validation_tree.insert('', tk.END, values=(tipo, mensaje, linea))
-        
-        return len([v for v in validations if v[0] == 'Error']) == 0
+            
             
     def save_draft(self):
         """Guardar como borrador"""
@@ -1014,12 +1000,14 @@ class Editor:
             return
             
         # Validar antes de publicar
-        validation_passed = self.validate_song()
+        self.validate_song()
+        validations = self.validation_tree.get_children()
         
-        if not validation_passed:
+        if validations:
             if not messagebox.askyesno("Advertencia", 
-                                    "Hay errores de validación. ¿Continuar con la publicación?"):
+                                     "Hay validaciones pendientes. ¿Continuar con la publicación?"):
                 return
+        
         
         try:
             print("\n🔍 DEBUG - Datos originales de la canción:")
