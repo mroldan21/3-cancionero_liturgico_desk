@@ -187,5 +187,270 @@ class DatabaseManager:
         except:
             return False
         
+    # ============================================================================
+    # MÉTODOS PARA AGREGAR A DatabaseManager en database.py
+    # ============================================================================
+
+    # ===== FONT METRICS =====
+
+    def get_font_metric(self, font_name: str, font_size: int, char: str) -> Optional[Dict]:
+        """
+        Obtener métrica de un carácter específico
+        
+        Args:
+            font_name: Nombre de la tipografía (ej: 'Arial')
+            font_size: Tamaño en puntos (ej: 11)
+            char: Carácter a consultar (ej: 'a')
+            
+        Returns:
+            Dict con los datos o None si no existe
+        """
+        endpoint = "font_metrics.php"
+        params = {
+            'action': 'get',
+            'font_name': font_name,
+            'font_size': font_size,
+            'char': char
+        }
+        result = self._make_request(endpoint, 'GET', params)
+        return result.get('data') if result.get('success') else None
+
+
+    def get_font_metrics(self, font_name: str, font_size: int) -> Dict:
+        """
+        Obtener todas las métricas para una tipografía específica
+        
+        Args:
+            font_name: Nombre de la tipografía
+            font_size: Tamaño en puntos
+            
+        Returns:
+            Dict {caracter: width_ratio} o {} si no hay métricas
+        """
+        endpoint = "font_metrics.php"
+        params = {
+            'action': 'list',
+            'font_name': font_name,
+            'font_size': font_size
+        }
+        result = self._make_request(endpoint, 'GET', params)
+        return result.get('data', {}) if result.get('success') else {}
+
+
+    def create_or_update_font_metric(self, font_name: str, font_size: int, 
+                                    char: str, width_ratio: float) -> Dict:
+        """
+        Crear o actualizar métrica de un carácter
+        
+        Args:
+            font_name: Nombre de la tipografía
+            font_size: Tamaño en puntos
+            char: Carácter
+            width_ratio: Ancho relativo (float)
+            
+        Returns:
+            Dict {'success': bool, 'message': str, 'data': dict}
+        """
+        endpoint = "font_metrics.php"
+        data = {
+            'action': 'create',
+            'font_name': font_name,
+            'font_size': font_size,
+            'char': char,
+            'width_ratio': width_ratio
+        }
+        return self._make_request(endpoint, 'POST', data)
+
+
+    def bulk_create_font_metrics(self, font_name: str, font_size: int, 
+                                char_metrics: Dict[str, float]) -> Dict:
+        """
+        Crear o actualizar múltiples métricas de una vez
+        
+        Args:
+            font_name: Nombre de la tipografía
+            font_size: Tamaño en puntos
+            char_metrics: Dict {caracter: width_ratio}
+            
+        Returns:
+            Dict {'success': bool, 'message': str, 'data': dict}
+        """
+        endpoint = "font_metrics.php"
+        data = {
+            'action': 'bulk',
+            'font_name': font_name,
+            'font_size': font_size,
+            'metrics': char_metrics
+        }
+        return self._make_request(endpoint, 'POST', data)
+
+
+    def increment_font_usage(self, font_name: str, font_size: int) -> Dict:
+        """
+        Incrementar contador de uso para una tipografía
+        
+        Args:
+            font_name: Nombre de la tipografía
+            font_size: Tamaño en puntos
+            
+        Returns:
+            Dict {'success': bool, 'message': str, 'data': dict}
+        """
+        endpoint = "font_metrics.php"
+        data = {
+            'font_name': font_name,
+            'font_size': font_size
+        }
+        return self._make_request(endpoint, 'PUT', data)
+
+
+    def get_most_used_fonts(self, limit: int = 10) -> List[Dict]:
+        """
+        Obtener las tipografías más utilizadas
+        
+        Args:
+            limit: Número máximo de resultados
+            
+        Returns:
+            Lista de dicts [{'font_name', 'font_size', 'total_usage', 'last_used'}]
+        """
+        endpoint = "font_metrics.php"
+        params = {
+            'action': 'most_used',
+            'limit': limit
+        }
+        result = self._make_request(endpoint, 'GET', params)
+        return result.get('data', []) if result.get('success') else []
+
+
+    def get_available_fonts(self) -> List[Dict]:
+        """
+        Obtener lista de todas las tipografías disponibles
+        
+        Returns:
+            Lista de dicts [{'font_name', 'font_size', 'char_count'}]
+        """
+        endpoint = "font_metrics.php"
+        params = {'action': 'available_fonts'}
+        result = self._make_request(endpoint, 'GET', params)
+        return result.get('data', []) if result.get('success') else []
+
+
+    def delete_font_metrics(self, font_name: str, font_size: int) -> Dict:
+        """
+        Eliminar todas las métricas de una tipografía específica
+        
+        Args:
+            font_name: Nombre de la tipografía
+            font_size: Tamaño en puntos
+            
+        Returns:
+            Dict {'success': bool, 'message': str, 'data': dict}
+        """
+        endpoint = f"font_metrics.php?font_name={font_name}&font_size={font_size}"
+        return self._make_request(endpoint, 'DELETE')
+
+
+    def initialize_default_font_metrics(self) -> Dict:
+        """
+        Pre-cargar métricas por defecto para tipografías comunes
+        
+        Returns:
+            Dict con estadísticas de la inicialización
+        """
+        endpoint = "font_metrics.php"
+        data = {'action': 'initialize'}
+        result = self._make_request(endpoint, 'POST', data)
+        
+        if result.get('success'):
+            self.logger.info(f"✅ Métricas inicializadas: {result.get('data', {})}")
+        else:
+            self.logger.error(f"❌ Error inicializando métricas: {result.get('message')}")
+        
+        return result
+
+
 # Instancia global para usar en la app
 database = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+
+
+
+
+
+
+# ============================================================================
+# SCRIPT DE TESTING (agregar al final del archivo database.py)
+# ============================================================================
+
+def test_font_metrics_api():
+    """
+    Función de prueba para validar los métodos de font_metrics
+    Ejecutar: python database.py
+    """
+    print("="*70)
+    print("🧪 TEST: API de Font Metrics")
+    print("="*70)
+    
+    # Crear instancia del manager
+    db = DatabaseManager("https://cincomasuno.ar/api_cancionero_desk")
+    
+    # Test 1: Inicializar métricas por defecto
+    print("\n📦 Test 1: Inicializar métricas por defecto")
+    result = db.initialize_default_font_metrics()
+    print(f"   Resultado: {result.get('message')}")
+    if result.get('data'):
+        print(f"   Datos: {result['data']}")
+    
+    # Test 2: Obtener métrica específica
+    print("\n📏 Test 2: Obtener métrica específica")
+    metric = db.get_font_metric('Arial', 11, 'a')
+    if metric:
+        print(f"   ✅ Métrica encontrada: {metric}")
+    else:
+        print(f"   ❌ Métrica no encontrada")
+    
+    # Test 3: Obtener todas las métricas
+    print("\n📚 Test 3: Obtener todas las métricas de Arial 11pt")
+    metrics = db.get_font_metrics('Arial', 11)
+    print(f"   ✅ Encontradas {len(metrics)} métricas")
+    if metrics:
+        print(f"   Ejemplo: {list(metrics.items())[:5]}")
+    
+    # Test 4: Crear/actualizar métrica individual
+    print("\n✏️ Test 4: Crear/actualizar métrica")
+    result = db.create_or_update_font_metric('Arial', 11, 'z', 0.55)
+    print(f"   Resultado: {result.get('message')}")
+    
+    # Test 5: Crear múltiples métricas
+    print("\n📝 Test 5: Crear métricas en bulk")
+    test_metrics = {'x': 0.58, 'y': 0.54, 'ñ': 0.60}
+    result = db.bulk_create_font_metrics('Arial', 11, test_metrics)
+    print(f"   Resultado: {result.get('message')}")
+    if result.get('data'):
+        print(f"   Detalles: {result['data']}")
+    
+    # Test 6: Incrementar uso
+    print("\n📈 Test 6: Incrementar uso")
+    result = db.increment_font_usage('Arial', 11)
+    print(f"   Resultado: {result.get('message')}")
+    
+    # Test 7: Tipografías más usadas
+    print("\n🏆 Test 7: Tipografías más usadas")
+    top_fonts = db.get_most_used_fonts(5)
+    for i, font in enumerate(top_fonts, 1):
+        print(f"   {i}. {font['font_name']} {font['font_size']}pt - {font['total_usage']} usos")
+    
+    # Test 8: Tipografías disponibles
+    print("\n📋 Test 8: Tipografías disponibles")
+    available = db.get_available_fonts()
+    for font in available:
+        print(f"   - {font['font_name']} {font['font_size']}pt ({font['char_count']} caracteres)")
+    
+    print("\n" + "="*70)
+    print("✅ Tests completados")
+    print("="*70)
+
+
+# Agregar al final del archivo database.py
+if __name__ == "__main__":
+    test_font_metrics_api()

@@ -11,6 +11,10 @@ from datetime import datetime
 import re
 import json
 
+# Uso simple desde file_processor.py:
+from core.font_converter import FontConverter
+
+
 # ==============================================================================
 # CONSTANTES GLOBALES - DEFINICIÓN ÚNICA Y CONSOLIDADA
 # ==============================================================================
@@ -495,6 +499,12 @@ class FileProcessor:
             self._update_progress("Extrayendo texto desde Word...", 10)
             print("Extrayendo texto desde Word...(_process_docx_file)")
             doc = DocxDocument(file_path)
+            #Obtiene informacion de fonts
+            converter = FontConverter(self.db_manager)
+            font_info = converter.detect_and_prompt_font(file_path, parent_window)
+            if font_info:
+                converted_text = converter.convert_text(full_text, font_info)
+
             # paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
             #full_text = "\n".join(paragraphs)
             # ⬇️ IMPORTANTE: Preservar saltos de línea y tabulaciones ⬇️
