@@ -273,10 +273,19 @@ def analyze_docx_spacing(file_path: str, num_lines: int = 10):
             print(f"  Letra original:")
             print(f"    '{line2.replace(' ', '·')}'")
             
-            # Aplicar alineación
-            chord_aligned, lyric_padded = file_processor.align_chord_over_lyric(
-                line1, line2
+            # ✅ DESPUÉS (usar flujo completo):
+            # Simular el texto completo con el par
+            test_text = f"{line1}\n{line2}"
+            reconstructed = file_processor._reconstruct_fixedwidth_song(
+                test_text, 
+                {'name': font_name, 'size': int(font_size)}
             )
+            lines_result = reconstructed.split('\n')
+            if len(lines_result) >= 2:
+                chord_aligned = lines_result[0]
+                lyric_padded = lines_result[1]
+            else:
+                chord_aligned = lyric_padded = ""
             
             print(f"\n  Acordes alineados:")
             print(f"    '{chord_aligned.replace(' ', '·')}'")
