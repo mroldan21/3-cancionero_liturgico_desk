@@ -234,19 +234,56 @@ class FontConverter:
         # Fallback: usar valor por defecto
         return 0.6  # Valor promedio razonable
     
-    def _get_char_width_from_db(self, font_name: str, font_size: int, char: str) -> Optional[float]:
-        """Obtener ancho de carácter desde base de datos"""
-        if not self.db_manager:
-            return None
+    def get_char_width(self, char: str, font_name: str, font_size: int) -> float:
+        """
+        Obtener ancho relativo de un carácter
+        """
+        # Buscar en cache
+        if font_name in self.metrics_cache:
+            # Si existe el tamaño exacto
+            if font_size in self.metrics_cache[font_name]:
+                metrics = self.metrics_cache[font_name][font_size]
+                return metrics.get(char.lower(), metrics.get('default', 0.6))
+            
+            # ✅ NUEVO: Interpolar si no existe el tamaño exacto
+            available_sizes = sorted(self.metrics_cache[font_name].keys())
+            if available_sizes:
+                # Encontrar tamaños más cercanos
+                if font_size < available_sizes[0]:
+                    # Usar el tamaño más pequeño
+                    size_to_use = available_sizes[0]
+                elif font_size > available_sizes[-1]:
+                    # Usar el tamaño más grande
+                    size_to_use = available_sizes[-1]
+                else:
+                    # Interpolar entre dos tamaños
+                    lower = max([s for s in available_sizes if s <= font_size])
+                    upper = min([s for s in available_sizes if s >= font_size])
+                    
+                    if lower == upper:
+                        size_to_use = lower
+                    else:
+                        # Interpolación lineal
+                        ratio = (font_size - lower) / (upper - lower)
+                        lower_metrics = self.metrics_cache[font_name][lower]
+                        upper_metrics = self.metrics_cache[font_name][upper]
+                        
+                        lower_width = lower_metrics.get(char.lower(), lower_metrics.get('default', 0.6))
+                        upper_width = upper_metrics.get(char.lower(), upper_metrics.get('default', 0.6))
+                        
+                        return lower_width + (upper_width - lower_width) * ratio
+                
+                metrics = self.metrics_cache[font_name][size_to_use]
+                return metrics.get(char.lower(), metrics.get('default', 0.6))
         
-        try:
-            # Aquí se llamaría al método del db_manager
-            result = self.db_manager.get_font_metric(font_name, font_size, char)
-            return result['width_ratio'] if result else None
-            #return None  # Placeholder
-        except Exception as e:
-            print(f"⚠️ Error consultando BD: {e}")
-            return None
+        # Buscar en base de datos si está disponible
+        if self.db_manager:
+            db_width = self._get_char_width_from_db(font_name, font_size, char)
+            if db_width is not None:
+                return db_width
+        
+        # Fallback: usar valor por defecto
+        return 0.6
     
     def calculate_monospace_width(self, text: str, font_name: str, font_size: int) -> float:
         """
@@ -266,7 +303,12 @@ class FontConverter:
             char_width = self.get_char_width(char, font_name, font_size)
             total_width += char_width
         
-        return total_width
+        # ✅ CORRECCIÓN: En tipografías proporcionales, el "ancho monospace equivalente"
+        # debe ser MAYOR que la suma de anchos proporcionales
+        # Factor de corrección empírico: ~1.5 - 2.0 para Arial
+        correction_factor = 1.6  # Ajustar según pruebas
+        
+        return total_width * correction_factor
     
     def convert_text(self, text: str, font_info: Dict) -> str:
         """

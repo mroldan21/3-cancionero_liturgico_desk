@@ -93,17 +93,18 @@ except ImportError:
     print("⚠️  python-docx no instalado. Instala con: pip install python-docx")
 
 class FileProcessor:
-    def __init__(self, db_manager=None, *args, **kwargs):        
+    def __init__(self, db_manager=None, parent_window=None, *args, **kwargs):        
         """
         db_manager opcional para facilitar testing. En producción pasá el manager real.
         """
         self.db_manager = db_manager
+        self.parent_window = parent_window  # ✅ Guardar referencia a ventana padre
         self.logger = kwargs.get('logger') if 'logger' in kwargs else None
         #self.logger = logging.getLogger(__name__)
         self.progress_callback = None   
         # ✅ NUEVO: Inicializar FontConverter
         self.font_converter = FontConverter(db_manager)
-        print("✅ FontConverter inicializado en FileProcessor")     
+        print("✅ FontConverter inicializado en FileProcessor")             
         
     def set_progress_callback(self, callback):
         """Set callback for progress updates"""
@@ -509,10 +510,6 @@ class FileProcessor:
             print(f"📝 Tipografía detectada: {detected_font['name']} {detected_font['size']}pt (confianza: {detected_font['confidence']:.0%})")
             
             # ✅ NUEVO: Mostrar diálogo para confirmar/cambiar tipografía
-            # IMPORTANTE: Necesitamos pasar la ventana padre (parent_window)
-            # Por ahora, si no hay ventana, usar tipografía detectada directamente
-            
-            # Si hay callback de UI, mostrar diálogo
             if hasattr(self, 'parent_window') and self.parent_window:
                 print("💬 Mostrando diálogo de selección de tipografía...")
                 font_info = self.font_converter.prompt_font_selection(
@@ -532,32 +529,36 @@ class FileProcessor:
                 # Modo sin UI: usar tipografía detectada
                 font_info = detected_font
                 print(f"⚙️  Modo automático: usando {font_info['name']} {font_info['size']}pt")
-
+            
+            # ✅ CONTINUAR con el procesamiento normal
+            print(f"✅ Procesando con tipografía: {font_info['name']} {font_info['size']}pt")
+            
+            # Extraer párrafos
             paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
             full_text = "\n".join(paragraphs)
-            # ⬇️ IMPORTANTE: Preservar saltos de línea y tabulaciones ⬇️
-            # ✅ MODIFICADO: Pasar font_info a la creación de canción
-            song = self._create_single_song_from_text(
-                full_text, 
-                file_path,
-                font_info=font_info  # ← NUEVO PARÁMETRO
-            )
             
-            # Crear una "canción" única con el contenido
-            #song = self._create_single_song_from_text(full_text, file_path)
+            # ❌ ELIMINAR: No convertir el espaciado, usar texto original
+            # converted_text = self.font_converter.convert_text(full_text, font_info)
+            
+            # ✅ Crear canción con el texto ORIGINAL (sin conversión)
+            # El espaciado del DOCX ya está correcto para la visualización
+            song = self._create_single_song_from_text(full_text, file_path, font_info)
+            
             return {
                 'success': True,
                 'file_type': 'docx',
                 'total_pages': 1,
                 'songs_found': [song] if song else [],
                 'extracted_text': full_text,
-                'processed_with': 'docx'
+                'font_used': font_info,  # ✅ Guardar info de tipografía para referencia
+                'processed_with': 'docx_original_spacing'
             }
+            
         except Exception as e:
-            self.logger.error(f"Error procesando DOCX {file_path}: {e}")
+            self.logger.error(f"Error procesando DOCX {file_path}: {e}") if self.logger else print(f"Error: {e}")
             return {'success': False, 'error': f'Error docx: {str(e)}'}
-         
-    def _create_single_song_from_text(self, text: str, file_path: str) -> Dict:
+        
+    def _create_single_song_from_text(self, text: str, file_path: str, font_info: Dict = None) -> Dict:
         """Crear una sola canción desde el texto completo, formateada para tipografía monoespaciada."""
         print("✅  Creando canción desde texto completo...(_create_single_song_from_text)")
         lines = text.split('\n')
@@ -567,43 +568,31 @@ class FileProcessor:
         title = self._extract_title_from_text(lines, file_name)
         print(f"📄 Título extraído: {title}")
 
-        # ✅ MODIFICADO: Aplicar conversión de tipografía si está disponible
-        if font_info:
-            print(f"🔄 Aplicando conversión de tipografía: {font_info['name']} {font_info['size']}pt")
-            try:
-                formatted_song = self.font_converter.convert_text(text, font_info)
-                print("✅ Conversión de tipografía aplicada exitosamente")
-                
-                # Incrementar contador de uso
-                self.font_converter.increment_usage(font_info['name'], font_info['size'])
-                
-            except Exception as e:
-                print(f"⚠️ Error en conversión de tipografía: {e}")
-                print("📝 Usando método de reconstrucción fallback...")
-                formatted_song = self._reconstruct_fixedwidth_song(text)
-        else:
-            # Sin información de tipografía: usar método original
-            print("📝 Sin información de tipografía, usando método estándar...")
-            formatted_song = self._reconstruct_fixedwidth_song(text)
-
-        print("📄 Letra formateada creada.")
+        # ✅ Reconstruir el texto con acordes alineados Y conversión de tipografía
+        formatted_song = self._reconstruct_fixedwidth_song(text, font_info)
+        print("📄 Letra formateada creada con (_reconstruct_fixedwidth_song)")
         print(formatted_song)
 
         # Detectar tonalidad
         probable_key = self._detect_tonality_from_text(formatted_song)
         print(f"📄 Tonalidad probable detectada: {probable_key}")
 
+        # Construir notas con info de tipografía
+        notas = f"Importado desde DOCX: {os.path.basename(file_path)}"
+        if font_info:
+            notas += f"\nTipografía: {font_info['name']} {font_info['size']}pt"
+
         return {
             'titulo': title,
             'artista': 'Desconocido',
-            'letra': formatted_song.strip(),  # texto ya listo para renderizado monospace
+            'letra': formatted_song.strip(),
             'tono_original': probable_key,
-            'acordes': '',  # los acordes ya están embebidos en la letra
+            'acordes': '',
             'estado': 'pendiente',
             'categoria_id': 1,
-            'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
+            'notas': notas
         }
-    
+
     # ============================================================================
     # PASO 5: AGREGAR MÉTODO PARA CONFIGURAR VENTANA PADRE (OPCIONAL)
     # ============================================================================
@@ -618,15 +607,15 @@ class FileProcessor:
         self.parent_window = parent_window
         print("✅ Ventana padre configurada para diálogos")
         
-    def _reconstruct_fixedwidth_song(self, text: str, tabsize: int = 4) -> str:
+    def _reconstruct_fixedwidth_song(self, text: str, font_info: Dict = None, tabsize: int = 4) -> str:
         """
-        Reconstruye texto de canción con acordes alineados en fuente monoespaciada.
-        Detecta pares (línea de acordes, línea de letra) y los reensambla.
+        Reconstruye texto de canción con acordes alineados.
+        Si se proporciona font_info, convierte el espaciado a monoespaciado primero.
         """
         print("✅ ✅ Reconstruyendo canción en formato monoespaciado...(_reconstruct_fixedwidth_song)")
+        
         def normalize_tabs(s: str) -> str:
             return s.replace('\t', ' ' * tabsize)
-        
 
         lines = [normalize_tabs(l.rstrip()) for l in text.splitlines()]
         output_lines = []
@@ -636,7 +625,7 @@ class FileProcessor:
         while i < n:
             line = lines[i]
             if not line.strip():
-                output_lines.append("")  # línea vacía
+                output_lines.append("")
                 i += 1
                 continue
 
@@ -645,12 +634,37 @@ class FileProcessor:
                 print("📌 Línea de acordes detectada:")
 
                 chord_line_raw = line
-                print(f"  Acordes: {chord_line_raw}")
                 lyric_line_raw = lines[i+1]
+                
+                # ✅ NUEVO: Convertir a monoespaciado si hay info de tipografía
+                if font_info and hasattr(self, 'font_converter'):
+                    print(f"  🔄 Convirtiendo espaciado de {font_info['name']} {font_info['size']}pt a monospace...")
+                    chord_line_converted = self.font_converter._convert_line(
+                        chord_line_raw, 
+                        font_info['name'], 
+                        font_info['size']
+                    )
+                    lyric_line_converted = self.font_converter._convert_line(
+                        lyric_line_raw,
+                        font_info['name'],
+                        font_info['size']
+                    )
+                    print(f"  Acordes: {len(chord_line_raw)} → {len(chord_line_converted)} chars")
+                    print(f"  Letra:   {len(lyric_line_raw)} → {len(lyric_line_converted)} chars")
+                else:
+                    chord_line_converted = chord_line_raw
+                    lyric_line_converted = lyric_line_raw
+
+                print(f"  Acordes originales: {chord_line_raw}")
+                print(f"  Acordes convertidos: {chord_line_converted}")
                 print(f"  Letra:   {lyric_line_raw}")
 
-                # normaliza tabs si hiciste afuera
-                chord_aligned, lyric_padded = self.align_chord_over_lyric(chord_line_raw, lyric_line_raw)
+                # Alinear usando las líneas convertidas
+                chord_aligned, lyric_padded = self.align_chord_over_lyric(
+                    chord_line_converted, 
+                    lyric_line_converted
+                )
+                
                 print(f"  Acordes alineados: {chord_aligned}")
                 print(f"  Letra ajustada:    {lyric_padded}")
 
@@ -665,12 +679,9 @@ class FileProcessor:
                 output_lines.append(line)
                 i += 1
 
-        # Unir líneas resultantes con salto de línea
         print("✅ ✅ Reconstrucción completada.")
-        print("\n".join(output_lines))
-        
         return "\n".join(output_lines)
-
+    
     def align_chord_over_lyric(self, chord_line: str, lyric_line: str, tabsize: int = 4) -> (str, str):
         """
         Reposiciona acordes normalizándolos y manteniéndolos separados

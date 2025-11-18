@@ -16,9 +16,14 @@ class ImportModule:
         self.categories = []
 
         # Inicializar procesador de archivos
-        self.file_processor = FileProcessor(app.database)
+        #self.file_processor = FileProcessor(app.database)
         # ✅ NUEVO: Configurar ventana padre para diálogos
-        self.file_processor.set_parent_window(self.parent)
+        #self.file_processor.set_parent_window(self.parent)
+        # ✅ DESPUÉS:
+        self.file_processor = FileProcessor(
+            app.database, 
+            parent_window=parent  # Pasar la ventana padre
+        )
 
         self.file_processor.set_progress_callback(self.on_processing_progress)
         
@@ -613,8 +618,8 @@ class ImportModule:
                 # Procesar archivo individual
                 file_result = self.file_processor._process_single_file(file_path, options)
                 # El result ahora incluye 'font_info' si fue un .docx
-                if file_result.get('success') and file_result.get('font_info'):
-                    print(f"✅ Archivo procesado con tipografía: {file_result['font_info']}")
+                #if file_result.get('success') and file_result.get('font_info'):
+                #    print(f"✅ Archivo procesado con tipografía: {file_result['font_info']}")
 
                 print ("===============================================================")
                 print ("✅ ✅ Archivo procesado: ✅ ✅ ")
