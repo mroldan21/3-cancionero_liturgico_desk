@@ -100,7 +100,10 @@ class FileProcessor:
         self.db_manager = db_manager
         self.logger = kwargs.get('logger') if 'logger' in kwargs else None
         #self.logger = logging.getLogger(__name__)
-        self.progress_callback = None        
+        self.progress_callback = None   
+        # ✅ NUEVO: Inicializar FontConverter
+        self.font_converter = FontConverter(db_manager)
+        print("✅ FontConverter inicializado en FileProcessor")     
         
     def set_progress_callback(self, callback):
         """Set callback for progress updates"""
@@ -499,27 +502,49 @@ class FileProcessor:
             self._update_progress("Extrayendo texto desde Word...", 10)
             print("Extrayendo texto desde Word...(_process_docx_file)")
             doc = DocxDocument(file_path)
-            #Obtiene informacion de fonts
-            converter = FontConverter(self.db_manager)
-            font_info = converter.detect_and_prompt_font(file_path, parent_window)
-            if font_info:
-                converted_text = converter.convert_text(full_text, font_info)
-
-            # paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
-            #full_text = "\n".join(paragraphs)
-            # ⬇️ IMPORTANTE: Preservar saltos de línea y tabulaciones ⬇️
-            full_text_lines = []
-            for paragraph in doc.paragraphs:
-                if paragraph.text:
-                    full_text_lines.append(paragraph.text)
-                else:
-                    full_text_lines.append("")  # Preservar líneas vacías
             
-            full_text = "\n".join(full_text_lines)
-            # ⬆️ FIN DEL CAMBIO ⬆️
+            # ✅ NUEVO: Detectar tipografía del documento
+            print("🔍 Detectando tipografía del documento...")
+            detected_font = self.font_converter.detect_font_from_docx(file_path)
+            print(f"📝 Tipografía detectada: {detected_font['name']} {detected_font['size']}pt (confianza: {detected_font['confidence']:.0%})")
+            
+            # ✅ NUEVO: Mostrar diálogo para confirmar/cambiar tipografía
+            # IMPORTANTE: Necesitamos pasar la ventana padre (parent_window)
+            # Por ahora, si no hay ventana, usar tipografía detectada directamente
+            
+            # Si hay callback de UI, mostrar diálogo
+            if hasattr(self, 'parent_window') and self.parent_window:
+                print("💬 Mostrando diálogo de selección de tipografía...")
+                font_info = self.font_converter.prompt_font_selection(
+                    detected_font, 
+                    os.path.basename(file_path),
+                    self.parent_window
+                )
+                
+                if font_info is None:
+                    # Usuario canceló
+                    print("❌ Importación cancelada por el usuario")
+                    return {
+                        'success': False,
+                        'error': 'Importación cancelada por el usuario'
+                    }
+            else:
+                # Modo sin UI: usar tipografía detectada
+                font_info = detected_font
+                print(f"⚙️  Modo automático: usando {font_info['name']} {font_info['size']}pt")
+
+            paragraphs = [p.text for p in doc.paragraphs if p.text is not None]
+            full_text = "\n".join(paragraphs)
+            # ⬇️ IMPORTANTE: Preservar saltos de línea y tabulaciones ⬇️
+            # ✅ MODIFICADO: Pasar font_info a la creación de canción
+            song = self._create_single_song_from_text(
+                full_text, 
+                file_path,
+                font_info=font_info  # ← NUEVO PARÁMETRO
+            )
             
             # Crear una "canción" única con el contenido
-            song = self._create_single_song_from_text(full_text, file_path)
+            #song = self._create_single_song_from_text(full_text, file_path)
             return {
                 'success': True,
                 'file_type': 'docx',
@@ -542,9 +567,26 @@ class FileProcessor:
         title = self._extract_title_from_text(lines, file_name)
         print(f"📄 Título extraído: {title}")
 
-        # Reconstruir el texto con acordes alineados
-        formatted_song = self._reconstruct_fixedwidth_song(text)
-        print("📄 Letra formateada creada. con (_reconstruct_fixedwidth_song)")
+        # ✅ MODIFICADO: Aplicar conversión de tipografía si está disponible
+        if font_info:
+            print(f"🔄 Aplicando conversión de tipografía: {font_info['name']} {font_info['size']}pt")
+            try:
+                formatted_song = self.font_converter.convert_text(text, font_info)
+                print("✅ Conversión de tipografía aplicada exitosamente")
+                
+                # Incrementar contador de uso
+                self.font_converter.increment_usage(font_info['name'], font_info['size'])
+                
+            except Exception as e:
+                print(f"⚠️ Error en conversión de tipografía: {e}")
+                print("📝 Usando método de reconstrucción fallback...")
+                formatted_song = self._reconstruct_fixedwidth_song(text)
+        else:
+            # Sin información de tipografía: usar método original
+            print("📝 Sin información de tipografía, usando método estándar...")
+            formatted_song = self._reconstruct_fixedwidth_song(text)
+
+        print("📄 Letra formateada creada.")
         print(formatted_song)
 
         # Detectar tonalidad
@@ -561,6 +603,20 @@ class FileProcessor:
             'categoria_id': 1,
             'notas': f"Importado desde DOCX: {os.path.basename(file_path)}"
         }
+    
+    # ============================================================================
+    # PASO 5: AGREGAR MÉTODO PARA CONFIGURAR VENTANA PADRE (OPCIONAL)
+    # ============================================================================
+
+    def set_parent_window(self, parent_window):
+        """
+        Configurar ventana padre para mostrar diálogos
+        
+        Args:
+            parent_window: Ventana tkinter que será el parent de los diálogos
+        """
+        self.parent_window = parent_window
+        print("✅ Ventana padre configurada para diálogos")
         
     def _reconstruct_fixedwidth_song(self, text: str, tabsize: int = 4) -> str:
         """

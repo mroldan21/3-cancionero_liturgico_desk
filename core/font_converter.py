@@ -241,9 +241,9 @@ class FontConverter:
         
         try:
             # Aquí se llamaría al método del db_manager
-            # result = self.db_manager.get_font_metric(font_name, font_size, char)
-            # return result['width_ratio'] if result else None
-            return None  # Placeholder
+            result = self.db_manager.get_font_metric(font_name, font_size, char)
+            return result['width_ratio'] if result else None
+            #return None  # Placeholder
         except Exception as e:
             print(f"⚠️ Error consultando BD: {e}")
             return None
@@ -381,9 +381,9 @@ class FontConverter:
         try:
             for char, width_ratio in char_metrics.items():
                 # Llamar método del db_manager
-                # self.db_manager.create_or_update_font_metric(
-                #     font_name, font_size, char, width_ratio
-                # )
+                self.db_manager.create_or_update_font_metric(
+                    font_name, font_size, char, width_ratio
+                )
                 pass  # Placeholder
             
             print(f"✅ Métricas guardadas: {font_name} {font_size}pt ({len(char_metrics)} caracteres)")
@@ -394,7 +394,7 @@ class FontConverter:
         """Incrementar contador de uso de una tipografía"""
         if self.db_manager:
             try:
-                # self.db_manager.increment_font_usage(font_name, font_size)
+                self.db_manager.increment_font_usage(font_name, font_size)
                 pass  # Placeholder
             except Exception as e:
                 print(f"⚠️ Error actualizando contador: {e}")
@@ -435,8 +435,11 @@ class FontSelectionDialog:
         y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
-        # Esperar cierre
-        self.dialog.wait_window()
+        # Esperar cierre. Si no hay padre, iniciar el mainloop.
+        if parent:
+            self.dialog.wait_window()
+        else:
+            self.dialog.mainloop()
     
     def _create_ui(self, file_name: str, common_fonts: List[str]):
         """Crear interfaz del diálogo"""
