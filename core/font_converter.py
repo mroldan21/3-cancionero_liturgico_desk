@@ -79,8 +79,13 @@ class FontConverter:
         'Comic Sans MS',
         'Courier New'
     ]
+
+    # ✅ NUEVO: Factor de ajuste para conversión de espaciado
+    # Valores típicos: 0.85-1.15
+    # < 1.0 = reduce espacios, > 1.0 = aumenta espacios
+    DEFAULT_SPACING_FACTOR = 0.95  # Ajuste conservador (reducir 5%)
     
-    def __init__(self, db_manager=None):
+    def __init__(self, db_manager=None, spacing_factor=None):
         """
         Inicializar conversor de tipografías
         
@@ -90,8 +95,12 @@ class FontConverter:
         self.db_manager = db_manager
         self.metrics_cache = {}  # Cache de métricas cargadas
         
+        self.spacing_factor = spacing_factor if spacing_factor is not None else self.DEFAULT_SPACING_FACTOR
+        
         # Pre-cargar métricas por defecto
         self._load_default_metrics()
+        
+        print(f"✅ FontConverter inicializado (factor espaciado: {self.spacing_factor})")
         
     def _load_default_metrics(self):
         """Cargar métricas predefinidas en el cache"""
@@ -306,7 +315,7 @@ class FontConverter:
         # ✅ CORRECCIÓN: En tipografías proporcionales, el "ancho monospace equivalente"
         # debe ser MAYOR que la suma de anchos proporcionales
         # Factor de corrección empírico: ~1.5 - 2.0 para Arial
-        correction_factor = 1.6  # Ajustar según pruebas
+        correction_factor = 2.0  # Ajustar según pruebas
         
         return total_width * correction_factor
     
@@ -338,6 +347,7 @@ class FontConverter:
         
         return result
     
+    # Método alternativo de conversión con mejor preservación de posiciones
     def _convert_line(self, line: str, font_name: str, font_size: int) -> str:
         """
         Convertir una línea individual de texto
@@ -376,6 +386,138 @@ class FontConverter:
         
         return ''.join(result_chars)
     
+    # Método mejorado de conversión con ajuste proporcional de espacios
+    # Lo hacen proporcionalmente, distribuido entre los espacios, no es correcto
+    def _convert_line_2(self, line: str, font_name: str, font_size: int) -> str:
+        """
+        Convertir una línea individual de texto preservando posiciones en monospace
+        
+        Estrategia mejorada:
+        1. Mantener palabras tal cual
+        2. Ajustar espacios proporcionalmente para mantener longitud similar
+        """
+        if not line.strip():
+            return line
+        
+        # Dividir en segmentos (palabras y espacios)
+        segments = self._split_into_segments(line)
+        
+        # Calcular longitud objetivo (similar a la original)
+        target_length = len(line)
+        
+        # Primera pasada: calcular ancho de palabras (sin cambios)
+        words_length = 0
+        total_space_segments = 0
+        
+        for segment_type, segment_text in segments:
+            if segment_type == 'word':
+                words_length += len(segment_text)
+            elif segment_type == 'space':
+                total_space_segments += 1
+        
+        # Calcular espacios disponibles para distribuir
+        available_spaces = target_length - words_length
+        
+        # Si hay segmentos de espacio, distribuir equitativamente
+        if total_space_segments > 0:
+            spaces_per_segment = available_spaces / total_space_segments
+        else:
+            spaces_per_segment = 1
+        
+        # Segunda pasada: reconstruir línea
+        result_chars = []
+        space_accumulator = 0.0  # Para manejar fracciones
+        
+        for segment_type, segment_text in segments:
+            if segment_type == 'word':
+                result_chars.append(segment_text)
+            elif segment_type == 'space':
+                # Acumular espacios fraccionarios
+                space_accumulator += spaces_per_segment
+                num_spaces = int(space_accumulator)
+                space_accumulator -= num_spaces
+                
+                # Asegurar al menos 1 espacio
+                num_spaces = max(1, num_spaces)
+                result_chars.append(' ' * num_spaces)
+        
+        return ''.join(result_chars)
+
+    # Ajuste dinamico con constante de espaciado, no es correcto. Separa en espacios constantes entre acordes. Pésimo
+    # Pero introduce un factor de ajuste
+    def _convert_line_3(self, line: str, font_name: str, font_size: int) -> str:
+        """
+        Convertir una línea individual de texto preservando posiciones en monospace
+        
+        Usa self.spacing_factor para ajuste fino:
+        - 1.0 = mantener longitud original
+        - 0.9 = reducir 10% el espaciado
+        - 1.1 = aumentar 10% el espaciado
+        """
+        if not line.strip():
+            return line
+        
+        # Dividir en segmentos (palabras y espacios)
+        segments = self._split_into_segments(line)
+        
+        # Calcular longitud objetivo con factor de ajuste
+        target_length = int(len(line) * self.spacing_factor)
+        
+        # Primera pasada: calcular ancho de palabras
+        words_length = 0
+        total_space_segments = 0
+        
+        for segment_type, segment_text in segments:
+            if segment_type == 'word':
+                words_length += len(segment_text)
+            elif segment_type == 'space':
+                total_space_segments += 1
+        
+        # Calcular espacios disponibles
+        available_spaces = max(total_space_segments, target_length - words_length)
+        
+        # Distribuir espacios
+        if total_space_segments > 0:
+            spaces_per_segment = available_spaces / total_space_segments
+        else:
+            spaces_per_segment = 1
+        
+        # Segunda pasada: reconstruir línea
+        result_chars = []
+        space_accumulator = 0.0
+        
+        for segment_type, segment_text in segments:
+            if segment_type == 'word':
+                result_chars.append(segment_text)
+            elif segment_type == 'space':
+                space_accumulator += spaces_per_segment
+                num_spaces = int(space_accumulator)
+                space_accumulator -= num_spaces
+                num_spaces = max(1, num_spaces)
+                result_chars.append(' ' * num_spaces)
+        
+        result = ''.join(result_chars)
+        
+        # Debug: mostrar ajuste aplicado
+        if len(result) != len(line):
+            print(f"    Ajuste aplicado: {len(line)} → {len(result)} chars (factor: {self.spacing_factor})")
+        
+        return result
+
+    def set_spacing_factor(self, factor: float):
+        """
+        Ajustar el factor de espaciado
+        
+        Args:
+            factor: Nuevo factor (0.8-1.2 recomendado)
+        """
+        if not 0.5 <= factor <= 1.5:
+            print(f"⚠️  Factor fuera de rango recomendado (0.5-1.5): {factor}")
+        
+        self.spacing_factor = factor
+        print(f"✅ Factor de espaciado ajustado a: {factor}")
+
+
     def _split_into_segments(self, line: str) -> List[Tuple[str, str]]:
         """
         Dividir línea en segmentos de palabras y espacios
@@ -609,6 +751,83 @@ class FontSelectionDialog:
         self.result = None
         self.dialog.destroy()
 
+
+class SpacingConfigDialog:
+    """Diálogo para configurar el factor de espaciado"""
+    
+    def __init__(self, parent, current_factor=0.95):
+        self.result = None
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("⚙️ Ajuste de Espaciado")
+        self.dialog.geometry("400x250")
+        
+        # Título
+        ttk.Label(self.dialog, text="Ajuste Fino de Espaciado", 
+                 font=('Arial', 12, 'bold')).pack(pady=10)
+        
+        # Explicación
+        ttk.Label(self.dialog, 
+                 text="Ajusta cómo se convierten los espacios:\n"
+                      "• < 1.0: reduce espacios (más compacto)\n"
+                      "• 1.0: mantiene longitud original\n"
+                      "• > 1.0: aumenta espacios (más expandido)",
+                 justify=tk.LEFT).pack(pady=10)
+        
+        # Slider
+        frame = ttk.Frame(self.dialog)
+        frame.pack(pady=10)
+        
+        ttk.Label(frame, text="Factor:").pack(side=tk.LEFT)
+        
+        self.factor_var = tk.DoubleVar(value=current_factor)
+        self.factor_label = ttk.Label(frame, text=f"{current_factor:.2f}")
+        self.factor_label.pack(side=tk.RIGHT, padx=10)
+        
+        self.slider = ttk.Scale(frame, from_=0.8, to=1.2, 
+                               variable=self.factor_var,
+                               orient=tk.HORIZONTAL,
+                               length=200,
+                               command=self._on_slider_change)
+        self.slider.pack(side=tk.LEFT, padx=5)
+        
+        # Presets
+        preset_frame = ttk.Frame(self.dialog)
+        preset_frame.pack(pady=10)
+        
+        ttk.Button(preset_frame, text="Compacto (0.90)", 
+                  command=lambda: self._set_preset(0.90)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(preset_frame, text="Normal (0.95)", 
+                  command=lambda: self._set_preset(0.95)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(preset_frame, text="Original (1.00)", 
+                  command=lambda: self._set_preset(1.00)).pack(side=tk.LEFT, padx=5)
+        
+        # Botones
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(pady=10)
+        
+        ttk.Button(btn_frame, text="✓ Aplicar", 
+                  command=self._on_accept).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="✗ Cancelar", 
+                  command=self._on_cancel).pack(side=tk.LEFT, padx=5)
+        
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.wait_window()
+    
+    def _on_slider_change(self, value):
+        self.factor_label.config(text=f"{float(value):.2f}")
+    
+    def _set_preset(self, value):
+        self.factor_var.set(value)
+        self.factor_label.config(text=f"{value:.2f}")
+    
+    def _on_accept(self):
+        self.result = self.factor_var.get()
+        self.dialog.destroy()
+    
+    def _on_cancel(self):
+        self.result = None
+        self.dialog.destroy()
 
 # ============================================================================
 # FUNCIONES DE UTILIDAD PARA TESTING

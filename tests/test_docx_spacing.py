@@ -93,8 +93,13 @@ def analyze_docx_spacing(file_path: str, num_lines: int = 10):
         print(f"❌ Error abriendo documento: {e}")
         return
     
-    # 2. Analizar TODAS las tipografías del documento
-    font_converter = FontConverter()
+    
+    #*************************************************************************************
+    #*************************************************************************************
+    # En test_docx_spacing.py, agregar opción para ajustar factor
+    font_converter = FontConverter(spacing_factor=1.5)  # Probar diferentes valores
+    #*************************************************************************************
+    #*************************************************************************************
     
     print(f"\n🔍 ANÁLISIS DE TIPOGRAFÍAS EN EL DOCUMENTO:")
     print("-"*80)
